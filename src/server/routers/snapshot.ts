@@ -13,10 +13,15 @@ import { policies, buckets, obligations } from "@/lib/db/schema";
 import { and } from "drizzle-orm";
 import type { TreasurySnapshot } from "@/lib/rules-engine/types";
 import { PublicKey } from "@solana/web3.js";
+import { getDemoSnapshot, getDemoProjection } from "@/lib/demo";
 
 export const snapshotRouter = router({
   // Latest snapshot for the org
   latest: orgProcedure.query(async ({ ctx }) => {
+    if (ctx.isDemoUser) {
+      const s = getDemoSnapshot();
+      return { id: s.id, orgId: s.orgId, takenAt: new Date(s.takenAt), totalsJson: { totalUsd: s.totalUsd, liquidUsd: s.liquidUsd }, positionsJson: s.positions, bucketsJson: {} };
+    }
     return ctx.db.query.snapshots.findFirst({
       where: eq(snapshots.orgId, ctx.orgId),
       orderBy: [desc(snapshots.takenAt)],
@@ -36,6 +41,7 @@ export const snapshotRouter = router({
 
   // Compute projection from latest snapshot + active policy
   projection: orgProcedure.query(async ({ ctx }) => {
+    if (ctx.isDemoUser) return getDemoProjection();
     const [latestSnapshot, activePolicy, orgBuckets, orgObs] = await Promise.all([
       ctx.db.query.snapshots.findFirst({
         where: eq(snapshots.orgId, ctx.orgId),
@@ -98,6 +104,11 @@ export const snapshotRouter = router({
 
   // Manually trigger a fresh snapshot — reads from Helius + adapters
   takeManual: orgProcedure.mutation(async ({ ctx }) => {
+    if (ctx.isDemoUser) {
+      const s = getDemoSnapshot();
+      return { snapshot: s, totalUsd: s.totalUsd, liquidUsd: s.liquidUsd, positions: s.positions };
+    }
+
     // Find primary wallet
     const wallet = await ctx.db.query.wallets.findFirst({
       where: and(eq(wallets.orgId, ctx.orgId), eq(wallets.isPrimary, true)),

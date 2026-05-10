@@ -12,6 +12,7 @@ import { PositionsTable } from "@/components/dashboard/PositionsTable";
 import { SnapshotButton } from "@/components/dashboard/SnapshotButton";
 import { AlertsBanner } from "@/components/AlertsBanner";
 import { computeAlerts } from "@/lib/rules-engine/alerts";
+import { isDemoUser, getDemoDashboardData } from "@/lib/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,10 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
+
+  if (isDemoUser(user.email)) {
+    return <DemoDashboard />;
+  }
 
   const membership = await db.query.memberships.findFirst({
     where: eq(memberships.userId, user.id),
@@ -193,6 +198,100 @@ function ObligationRow({ obligation }: { obligation: typeof obligations.$inferSe
         <div className={`text-xs font-mono ${isOverdue ? "text-neg" : isUrgent ? "text-warn" : "text-fg-3"}`}>
           {isOverdue ? `atrasado ${Math.abs(daysLeft)}d` : `em ${daysLeft}d`}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DemoDashboard() {
+  const { snap, projection, alerts, totals, positions, snapshotAge, orgName } = getDemoDashboardData();
+
+  const demoBuckets = snap.buckets.map((b, i) => ({
+    id: `demo-b-${i}`,
+    kind: b.kind,
+    label: ({ operating: "Operacional", payroll: "Folha", tax: "Impostos", emergency: "Reserva", yield: "Excedente", custom: "Outros" } as Record<string, string>)[b.kind] ?? b.kind,
+    targetAmountCents: b.targetUsd * 100,
+    currency: "USD",
+    balanceUsd: b.balanceUsd,
+  }));
+
+  const demoObligations = snap.obligations.map((o) => ({
+    id: o.id,
+    label: o.label,
+    amountCents: o.amountUsd * 100,
+    dueDate: new Date(o.dueDateIso),
+    recurrence: o.recurrence,
+  }));
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
+            {orgName} / Dashboard
+          </div>
+          <h1 className="text-xl font-semibold text-fg">Tesouraria</h1>
+        </div>
+        <div className="flex items-center gap-3">
+          <SnapshotButton />
+        </div>
+      </div>
+
+      <div className="text-xs text-fg-3 font-mono mb-4">
+        último snapshot há {snapshotAge} min
+      </div>
+
+      <AlertsBanner alerts={alerts} />
+
+      <div className="mb-6">
+        <KpiGrid
+          totalUsd={totals.totalUsd}
+          liquidUsd={totals.liquidUsd}
+          projection={projection}
+          policyVersion={3}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
+          <div className="px-4 py-3 border-b border-line text-xs font-mono text-fg-3 uppercase tracking-wider">
+            Buckets
+          </div>
+          <div className="divide-y divide-line">
+            {demoBuckets.map((b) => (
+              <BucketCard key={b.id} bucket={b} balanceUsd={b.balanceUsd} />
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
+          <div className="px-4 py-3 border-b border-line text-xs font-mono text-fg-3 uppercase tracking-wider">
+            Obrigações
+          </div>
+          <div className="divide-y divide-line">
+            {demoObligations.map((o) => (
+              <ObligationRow key={o.id} obligation={o as typeof obligations.$inferSelect} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {positions.length > 0 && (
+        <div className="rounded-xl border border-line bg-bg-1 overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-line text-xs font-mono text-fg-3 uppercase tracking-wider">
+            Posições alocadas
+          </div>
+          <PositionsTable positions={positions} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {["Policy Engine", "AI Copilot", "Simulador"].map((name) => (
+          <div key={name} className="rounded-xl border border-line bg-bg-1 p-4 text-center">
+            <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-1">{name}</div>
+            <div className="text-xs text-fg-3">em construção</div>
+          </div>
+        ))}
       </div>
     </div>
   );
