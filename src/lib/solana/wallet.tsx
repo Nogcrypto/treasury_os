@@ -1,40 +1,33 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, useCallback } from "react";
-import {
-  ConnectionProvider,
-  WalletProvider,
-  useWallet,
-  useConnection,
-} from "@solana/wallet-adapter-react";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
-import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
-import { clusterApiUrl, PublicKey } from "@solana/web3.js";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 
-// ── Provider ──────────────────────────────────────────────────────────────────
+// ── Phantom window type ───────────────────────────────────────────────────────
 
-interface SolanaProviderProps {
-  children: React.ReactNode;
+interface PhantomSolana {
+  isPhantom: boolean;
+  publicKey: { toBase58(): string } | null;
+  isConnected: boolean;
+  connect(): Promise<{ publicKey: { toBase58(): string } }>;
+  disconnect(): Promise<void>;
+  signMessage(message: Uint8Array, encoding: string): Promise<{ signature: Uint8Array }>;
 }
 
-export function SolanaProvider({ children }: SolanaProviderProps) {
-  const network = WalletAdapterNetwork.Devnet;
-  const endpoint = process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? clusterApiUrl(network);
-
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
-
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect={false}>
-        {children}
-      </WalletProvider>
-    </ConnectionProvider>
-  );
+function getPhantom(): PhantomSolana | null {
+  if (typeof window === "undefined") return null;
+  const p = (window as { phantom?: { solana?: PhantomSolana } }).phantom?.solana;
+  return p?.isPhantom ? p : null;
 }
 
-// ── SIWS (Sign In With Solana) ─────────────────────────────────────────────
+// ── SolanaProvider (passthrough — kept for import compatibility) ───────────────
 
-export interface SiwsMessage {
+export function SolanaProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+// ── SIWS helpers ──────────────────────────────────────────────────────────────
+
+interface SiwsMessage {
   domain: string;
   address: string;
   statement: string;
@@ -76,7 +69,7 @@ function siwsMessageToString(msg: SiwsMessage): string {
 // ── useSolana hook ────────────────────────────────────────────────────────────
 
 interface SolanaContextValue {
-  publicKey: PublicKey | null;
+  publicKey: { toBase58(): string } | null;
   connected: boolean;
   connecting: boolean;
   connect: () => Promise<void>;
@@ -87,41 +80,57 @@ interface SolanaContextValue {
 const SolanaContext = createContext<SolanaContextValue | null>(null);
 
 export function SolanaContextProvider({ children }: { children: React.ReactNode }) {
-  const { publicKey, connected, connecting, connect: walletConnect, disconnect: walletDisconnect, signMessage } = useWallet();
+  const [publicKey, setPublicKey] = useState<{ toBase58(): string } | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const connect = useCallback(async () => {
-    try {
-      await walletConnect();
-    } catch (err) {
-      // User rejected or Phantom not installed
-      console.warn("Wallet connect failed:", err);
+    const phantom = getPhantom();
+    if (!phantom) {
+      console.warn("Phantom not installed");
+      return;
     }
-  }, [walletConnect]);
+    setConnecting(true);
+    try {
+      const resp = await phantom.connect();
+      setPublicKey(resp.publicKey);
+      setConnected(true);
+    } catch (err) {
+      console.warn("Wallet connect failed:", err);
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
 
   const disconnect = useCallback(async () => {
-    await walletDisconnect();
-  }, [walletDisconnect]);
+    const phantom = getPhantom();
+    if (phantom) await phantom.disconnect().catch(() => {});
+    setPublicKey(null);
+    setConnected(false);
+  }, []);
 
   const signInWithSolana = useCallback(
     async (nonce: string): Promise<{ address: string; signature: string; message: string } | null> => {
-      if (!publicKey || !signMessage) return null;
+      const phantom = getPhantom();
+      if (!phantom || !publicKey) return null;
 
-      const msg = buildSiwsMessage(publicKey.toBase58(), nonce);
+      const address = publicKey.toBase58();
+      const msg = buildSiwsMessage(address, nonce);
       const msgStr = siwsMessageToString(msg);
       const encoded = new TextEncoder().encode(msgStr);
 
       try {
-        const signatureBytes = await signMessage(encoded);
+        const { signature } = await phantom.signMessage(encoded, "utf8");
         return {
-          address: publicKey.toBase58(),
-          signature: Buffer.from(signatureBytes).toString("base64"),
+          address,
+          signature: Buffer.from(signature).toString("base64"),
           message: msgStr,
         };
       } catch {
         return null;
       }
     },
-    [publicKey, signMessage]
+    [publicKey]
   );
 
   const value = useMemo(
@@ -137,6 +146,3 @@ export function useSolana(): SolanaContextValue {
   if (!ctx) throw new Error("useSolana must be used inside SolanaContextProvider");
   return ctx;
 }
-
-// Re-export for convenience
-export { useConnection };
