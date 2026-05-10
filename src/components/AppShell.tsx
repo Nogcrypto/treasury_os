@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/(auth)/login/actions";
 
@@ -28,10 +29,17 @@ export function AppShell({
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <nav className="w-52 shrink-0 border-r border-line bg-bg-1 flex flex-col">
-        <div className="px-4 py-5 border-b border-line">
-          <div className="text-xs font-mono text-fg-3 uppercase tracking-widest">TreasuryOS</div>
+        <div className="px-4 py-4 border-b border-line">
+          <Image
+            src="/logo.png"
+            alt="TreasuryOS"
+            width={140}
+            height={56}
+            className="w-auto h-10 object-contain"
+            priority
+          />
           {orgName && (
-            <div className="text-xs text-fg-2 mt-0.5 truncate">{orgName}</div>
+            <div className="text-xs text-fg-3 mt-1.5 truncate font-mono">{orgName}</div>
           )}
         </div>
 

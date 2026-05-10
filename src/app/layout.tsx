@@ -17,6 +17,17 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "TreasuryOS — CFO operacional onchain",
   description: "Gestão de tesouraria policy-driven para startups web3 na Solana.",
+  icons: {
+    icon: [
+      { url: "/logo.png", type: "image/png" },
+    ],
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "TreasuryOS",
+    description: "Policy-driven treasury management for web3 startups on Solana.",
+    images: [{ url: "/logo.png" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
