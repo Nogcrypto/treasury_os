@@ -9,7 +9,7 @@ interface Intent {
   id: string;
   kind: string;
   status: string;
-  paramsJson: Record<string, unknown>;
+  paramsJson: unknown;
   createdAt: Date | string;
 }
 

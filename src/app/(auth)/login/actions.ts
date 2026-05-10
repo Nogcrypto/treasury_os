@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-const EmailSchema = z.email();
+const EmailSchema = z.string().email();
 
 export async function sendMagicLink(formData: FormData): Promise<void> {
   const email = formData.get("email");

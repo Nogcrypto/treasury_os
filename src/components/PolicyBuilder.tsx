@@ -287,7 +287,7 @@ export function PolicyBuilder({
         <textarea
           value={aiDescription}
           onChange={(e) => setAiDescription(e.target.value)}
-          placeholder="Descreva sua política em linguagem natural… ex: "Quero ser conservador, manter 6 meses de runway, no máximo 30% em um protocolo, e só usar Kamino.""
+          placeholder={'Descreva sua política em linguagem natural... ex: "Quero ser conservador, manter 6 meses de runway, no maximo 30% em um protocolo, e so usar Kamino."'}
           rows={3}
           className="w-full resize-none rounded-lg border border-line bg-bg-1 px-3 py-2.5 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 transition-all mb-3"
         />

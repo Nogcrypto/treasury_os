@@ -60,14 +60,15 @@ export const snapshotRouter = router({
           rules: activePolicy.jsonSpec,
           activatedAt: activePolicy.activatedAt?.toISOString() ?? null,
         })
-      : {
+      : parsePolicy({
           id: "fallback",
           version: 1,
           orgId: ctx.orgId,
-          status: "active" as const,
+          status: "active",
+          preset: "balanced",
+          rules: POLICY_PRESETS.balanced.rules,
           activatedAt: new Date().toISOString(),
-          ...POLICY_PRESETS.balanced,
-        };
+        });
 
     const totals = latestSnapshot.totalsJson as { totalUsd: number; liquidUsd: number };
     const snap: TreasurySnapshot = {
