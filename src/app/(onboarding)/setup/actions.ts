@@ -31,13 +31,11 @@ export async function createOrg(data: {
   monthlyBurnUsd: number;
   simulatedMode: boolean;
 }): Promise<{ ok: boolean; orgId?: string; error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "não autenticado" };
-
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { ok: false, error: "não autenticado" };
+
     await db
       .insert(users)
       .values({ id: user.id, email: user.email ?? "" })
@@ -79,8 +77,9 @@ export async function createOrg(data: {
 
     return { ok: true, orgId: org.id };
   } catch (err) {
-    console.error("createOrg error:", err);
-    return { ok: false, error: "Falha ao criar organização." };
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("createOrg error:", msg);
+    return { ok: false, error: msg };
   }
 }
 
