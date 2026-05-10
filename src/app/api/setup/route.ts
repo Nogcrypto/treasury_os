@@ -4,7 +4,6 @@ import { db } from "@/lib/db/client";
 import { organizations, memberships, buckets, policies, users } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { POLICY_PRESETS } from "@/lib/rules-engine/policy";
-import { verifySiwsAndLinkWallet } from "@/lib/solana/siws";
 
 const DEFAULT_BUCKETS: { kind: typeof buckets.$inferInsert["kind"]; label: string }[] = [
   { kind: "operating", label: "Operacional" },
@@ -73,6 +72,7 @@ export async function POST(req: NextRequest) {
         message: string;
         orgId: string;
       };
+      const { verifySiwsAndLinkWallet } = await import("@/lib/solana/siws");
       const result = await verifySiwsAndLinkWallet({
         address, signature, message, orgId, label: "Phantom",
       });
