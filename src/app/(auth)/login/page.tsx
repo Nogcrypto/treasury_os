@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { signInWithPassword } from "./actions";
 
 interface Props {
@@ -13,14 +14,14 @@ export default async function LoginPage({ searchParams }: Props) {
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-2 mb-3">
-            <div className="w-7 h-7 rounded-md bg-[oklch(0.82_0.18_148)] flex items-center justify-center">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1L13 4V10L7 13L1 10V4L7 1Z" fill="oklch(0.14 0.006 240)" strokeWidth="0"/>
-              </svg>
-            </div>
-            <span className="text-white font-semibold tracking-tight">TreasuryOS</span>
-          </div>
+          <Image
+            src="/logo.png"
+            alt="TreasuryOS"
+            width={200}
+            height={80}
+            className="w-auto h-16 object-contain mx-auto mb-3"
+            priority
+          />
           <p className="text-[oklch(0.55_0.02_240)] text-sm font-mono tracking-wider uppercase">
             CFO operacional onchain
           </p>

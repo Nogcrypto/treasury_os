@@ -5,6 +5,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { projectRunway } from "@/lib/rules-engine/projections";
 import { parsePolicy } from "@/lib/rules-engine/policy";
 import type { TreasurySnapshot, Policy } from "@/lib/rules-engine/types";
+import Link from "next/link";
 import { signOut } from "@/app/(auth)/login/actions";
 import { KpiGrid } from "@/components/dashboard/KpiGrid";
 import { BucketCard } from "@/components/dashboard/BucketCard";
@@ -70,25 +71,17 @@ export default async function DashboardPage() {
     : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-start sm:items-center justify-between mb-6 sm:mb-8 gap-3">
         <div>
           <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
             {membership.org.name} / Dashboard
           </div>
           <h1 className="text-xl font-semibold text-fg">Tesouraria</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <SnapshotButton />
-          <form action={signOut}>
-            <button
-              type="submit"
-              className="text-xs text-fg-3 hover:text-fg transition-colors px-3 py-1.5 rounded-lg border border-line"
-            >
-              Sair
-            </button>
-          </form>
         </div>
       </div>
 
@@ -161,13 +154,27 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Coming soon placeholders */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {["Policy Engine", "AI Copilot", "Simulador"].map((name) => (
-          <div key={name} className="rounded-xl border border-line bg-bg-1 p-4 text-center">
-            <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-1">{name}</div>
-            <div className="text-xs text-fg-3">em construção</div>
-          </div>
+      {/* Module navigation */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {[
+          { href: "/policy",    label: "Policy Engine", desc: "Regras e compliance",      icon: "⚖" },
+          { href: "/copilot",   label: "AI Copilot",    desc: "Análise e recomendações",   icon: "✦" },
+          { href: "/simulator", label: "Simulador",     desc: "Projeções e cenários",       icon: "◈" },
+          { href: "/execution", label: "Execução",      desc: "Intents e transações",       icon: "▶" },
+          { href: "/reports",   label: "Relatórios",    desc: "Histórico e exportações",    icon: "↗" },
+        ].map(({ href, label, desc, icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="rounded-xl border border-line bg-bg-1 p-4 hover:bg-bg-2 hover:border-accent/30 transition-all group"
+          >
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="font-mono text-xs text-fg-3">{icon}</span>
+              <div className="text-xs font-mono text-fg-2 uppercase tracking-wider truncate">{label}</div>
+            </div>
+            <div className="text-xs text-fg-3 group-hover:text-fg-2 transition-colors leading-snug">{desc}</div>
+            <div className="text-xs text-accent mt-2 opacity-0 group-hover:opacity-100 transition-opacity">→</div>
+          </Link>
         ))}
       </div>
     </div>
@@ -224,15 +231,15 @@ function DemoDashboard() {
   }));
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="flex items-start sm:items-center justify-between mb-6 sm:mb-8 gap-3">
         <div>
           <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
             {orgName} / Dashboard
           </div>
           <h1 className="text-xl font-semibold text-fg">Tesouraria</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <SnapshotButton />
         </div>
       </div>
@@ -285,12 +292,26 @@ function DemoDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {["Policy Engine", "AI Copilot", "Simulador"].map((name) => (
-          <div key={name} className="rounded-xl border border-line bg-bg-1 p-4 text-center">
-            <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-1">{name}</div>
-            <div className="text-xs text-fg-3">em construção</div>
-          </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {[
+          { href: "/policy",    label: "Policy Engine", desc: "Regras e compliance",      icon: "⚖" },
+          { href: "/copilot",   label: "AI Copilot",    desc: "Análise e recomendações",   icon: "✦" },
+          { href: "/simulator", label: "Simulador",     desc: "Projeções e cenários",       icon: "◈" },
+          { href: "/execution", label: "Execução",      desc: "Intents e transações",       icon: "▶" },
+          { href: "/reports",   label: "Relatórios",    desc: "Histórico e exportações",    icon: "↗" },
+        ].map(({ href, label, desc, icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="rounded-xl border border-line bg-bg-1 p-4 hover:bg-bg-2 hover:border-accent/30 transition-all group"
+          >
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="font-mono text-xs text-fg-3">{icon}</span>
+              <div className="text-xs font-mono text-fg-2 uppercase tracking-wider truncate">{label}</div>
+            </div>
+            <div className="text-xs text-fg-3 group-hover:text-fg-2 transition-colors leading-snug">{desc}</div>
+            <div className="text-xs text-accent mt-2 opacity-0 group-hover:opacity-100 transition-opacity">→</div>
+          </Link>
         ))}
       </div>
     </div>

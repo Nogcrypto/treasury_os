@@ -19,8 +19,9 @@ export const metadata: Metadata = {
   description: "Gestão de tesouraria policy-driven para startups web3 na Solana.",
   icons: {
     icon: [
-      { url: "/logo.png", type: "image/png" },
+      { url: "/logo.png", type: "image/png", sizes: "any" },
     ],
+    shortcut: "/logo.png",
     apple: "/logo.png",
   },
   openGraph: {

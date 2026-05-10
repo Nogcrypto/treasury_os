@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { sendPasswordReset } from "./actions";
 
 interface Props {
@@ -12,14 +13,14 @@ export default async function ForgotPasswordPage({ searchParams }: Props) {
     <div className="min-h-screen bg-[oklch(0.14_0.006_240)] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-2 mb-3">
-            <div className="w-7 h-7 rounded-md bg-[oklch(0.82_0.18_148)] flex items-center justify-center">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1L13 4V10L7 13L1 10V4L7 1Z" fill="oklch(0.14 0.006 240)" strokeWidth="0"/>
-              </svg>
-            </div>
-            <span className="text-white font-semibold tracking-tight">TreasuryOS</span>
-          </div>
+          <Image
+            src="/logo.png"
+            alt="TreasuryOS"
+            width={200}
+            height={80}
+            className="w-auto h-16 object-contain mx-auto"
+            priority
+          />
         </div>
 
         <div className="bg-[oklch(0.18_0.006_240)] border border-[oklch(0.25_0.006_240)] rounded-xl p-6">
