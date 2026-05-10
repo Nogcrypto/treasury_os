@@ -29,6 +29,8 @@ export async function middleware(request: NextRequest) {
   // Public paths that don't need auth
   const isPublic =
     pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname === "/";
