@@ -12,6 +12,7 @@ import { SnapshotButton } from "@/components/dashboard/SnapshotButton";
 import { AlertsBanner } from "@/components/AlertsBanner";
 import { RunwayBar } from "@/components/dashboard/RunwayBar";
 import { ConcentrationPanel } from "@/components/dashboard/ConcentrationPanel";
+import { ObligationsPanel } from "@/components/dashboard/ObligationsPanel";
 import { computeAlerts } from "@/lib/rules-engine/alerts";
 import { isDemoUser, getDemoDashboardData } from "@/lib/demo";
 
@@ -78,6 +79,22 @@ export default async function DashboardPage() {
     balanceUsd: 0,
   }));
 
+  const concentrationLimit = activePolicy
+    ? (() => {
+        const rule = (activePolicy.jsonSpec as unknown as { id: string; params: Record<string, unknown> }[])
+          ?.find((r) => r.id === "MAX_CONCENTRATION_PCT");
+        return rule ? Number(rule.params.pct ?? 45) : null;
+      })()
+    : null;
+
+  const obligationRows = orgObligations.map((o) => ({
+    id: o.id,
+    label: o.label,
+    amountCents: o.amountCents,
+    dueDate: o.dueDate.toISOString(),
+    recurrence: o.recurrence,
+  }));
+
   return (
     <DashboardLayout
       orgName={membership.org.name}
@@ -87,8 +104,9 @@ export default async function DashboardPage() {
       liquidUsd={totals?.liquidUsd ?? null}
       projection={projection}
       policyVersion={activePolicy?.version ?? null}
+      concentrationLimit={concentrationLimit}
       buckets={bucketRows}
-      obligations={orgObligations}
+      obligations={obligationRows}
       positions={positions}
       snapBuckets={snap?.buckets}
     />
@@ -105,10 +123,12 @@ function DashboardLayout({
   liquidUsd,
   projection,
   policyVersion,
+  concentrationLimit,
   buckets: bucketRows,
   obligations: obligationRows,
   positions,
   snapBuckets,
+  isDemo,
 }: {
   orgName: string;
   snapshotAge: number | null;
@@ -117,10 +137,12 @@ function DashboardLayout({
   liquidUsd: number | null;
   projection: import("@/lib/rules-engine/types").ProjectionResult | null;
   policyVersion: number | null;
+  concentrationLimit?: number | null;
   buckets: { id: string; kind: string; label: string; targetAmountCents: number; currency: string; balanceUsd: number }[];
-  obligations: { id: string; label: string; amountCents: number; dueDate: Date; recurrence: string }[];
+  obligations: { id: string; label: string; amountCents: number; dueDate: string; recurrence: string }[];
   positions: TreasurySnapshot["positions"];
   snapBuckets?: TreasurySnapshot["buckets"];
+  isDemo?: boolean;
 }) {
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -128,14 +150,20 @@ function DashboardLayout({
       <div className="flex items-center justify-between mb-5 gap-3">
         <div>
           <div className="text-[10px] text-fg-3 font-mono tracking-wider uppercase mb-0.5">
-            {orgName} / Dashboard
+            Workspace / Dashboard
           </div>
-          <h1 className="text-lg font-semibold text-fg">Tesouraria</h1>
+          <h1 className="text-lg font-semibold text-fg">
+            Cockpit · <span className="text-fg-3 font-normal">{orgName}</span>
+          </h1>
+          <p className="text-xs text-fg-3 mt-0.5">
+            Snapshot atualizado a cada 5 min via Helius webhooks.
+            {policyVersion ? ` Política Balanced v${policyVersion} ativa.` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {snapshotAge !== null && (
             <span className="text-[10px] text-fg-3 font-mono">
-              snapshot há {snapshotAge === 0 ? "&lt;1" : snapshotAge}min
+              snapshot há {snapshotAge === 0 ? "<1" : snapshotAge}min
             </span>
           )}
           <SnapshotButton />
@@ -210,21 +238,15 @@ function DashboardLayout({
               liquidUsd={liquidUsd}
               positions={positions}
               complianceScore={projection?.complianceScore ?? 0}
+              policyVersion={policyVersion}
+              concentrationLimit={concentrationLimit}
             />
           )}
 
-          {obligationRows.length > 0 && (
-            <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
-              <div className="px-4 py-3 border-b border-line text-[10px] font-mono text-fg-3 uppercase tracking-wider">
-                Obrigações
-              </div>
-              <div className="divide-y divide-line">
-                {obligationRows.map((o) => (
-                  <ObligationRow key={o.id} obligation={o} />
-                ))}
-              </div>
-            </div>
-          )}
+          <ObligationsPanel
+            obligations={obligationRows}
+            isDemo={isDemo}
+          />
         </div>
       </div>
     </div>
@@ -249,7 +271,7 @@ function DemoDashboard() {
     id: o.id,
     label: o.label,
     amountCents: o.amountUsd * 100,
-    dueDate: new Date(o.dueDateIso),
+    dueDate: o.dueDateIso,
     recurrence: o.recurrence,
   }));
 
@@ -262,10 +284,12 @@ function DemoDashboard() {
       liquidUsd={totals.liquidUsd}
       projection={projection}
       policyVersion={3}
+      concentrationLimit={45}
       buckets={demoBuckets}
       obligations={demoObligations}
       positions={positions}
       snapBuckets={snap.buckets}
+      isDemo
     />
   );
 }
@@ -280,39 +304,6 @@ const BUCKET_LABELS: Record<string, string> = {
   yield: "Excedente",
   custom: "Outros",
 };
-
-function ObligationRow({ obligation }: { obligation: { id: string; label: string; amountCents: number; dueDate: Date; recurrence: string } }) {
-  const amountUsd = obligation.amountCents / 100;
-  const due = new Date(obligation.dueDate);
-  const daysLeft = Math.ceil((due.getTime() - Date.now()) / 86_400_000);
-  const isOverdue = daysLeft < 0;
-  const isUrgent = daysLeft >= 0 && daysLeft <= 7;
-  const isSoon = daysLeft >= 0 && daysLeft <= 30;
-
-  const horizon = daysLeft <= 30 ? "30d" : daysLeft <= 60 ? "60d" : "90d+";
-  const horizonClass = daysLeft <= 30 ? "text-warn" : "text-fg-3";
-
-  return (
-    <div className="px-4 py-3 flex items-center justify-between gap-2">
-      <div className="min-w-0">
-        <div className="text-xs font-medium text-fg truncate">{obligation.label}</div>
-        <div className="text-[10px] text-fg-3 font-mono">
-          {obligation.recurrence !== "once" ? obligation.recurrence : "única"}
-          {" · "}
-          <span className={horizonClass}>{horizon}</span>
-        </div>
-      </div>
-      <div className="text-right shrink-0">
-        <div className="text-xs font-mono text-fg">
-          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amountUsd)}
-        </div>
-        <div className={`text-[10px] font-mono ${isOverdue ? "text-neg" : isUrgent ? "text-neg" : isSoon ? "text-warn" : "text-fg-3"}`}>
-          {isOverdue ? `atrasado ${Math.abs(daysLeft)}d` : `em ${daysLeft}d`}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function OnboardingPrompt() {
   return (

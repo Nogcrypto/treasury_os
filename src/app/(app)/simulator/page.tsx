@@ -3,9 +3,9 @@ import { db } from "@/lib/db/client";
 import { memberships, snapshots, policies, obligations, buckets } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { parsePolicy } from "@/lib/rules-engine/policy";
-import { POLICY_PRESETS } from "@/lib/rules-engine/policy";
+import { parsePolicy, POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import { Simulator } from "@/components/Simulator";
+import { isDemoUser, getDemoSnapshot, getDemoPolicy } from "@/lib/demo";
 import type { TreasurySnapshot, Policy } from "@/lib/rules-engine/types";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,16 @@ export default async function SimulatorPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  if (isDemoUser(user.email)) {
+    return (
+      <Simulator
+        snapshot={getDemoSnapshot()}
+        policy={getDemoPolicy()}
+        policyVersion={3}
+      />
+    );
+  }
 
   const membership = await db.query.memberships.findFirst({
     where: eq(memberships.userId, user.id),
@@ -36,16 +46,13 @@ export default async function SimulatorPage() {
 
   if (!latestSnapshot) {
     return (
-      <div className="p-6">
-        <div className="mb-6">
-          <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
-            Tesouraria / Simulador
-          </div>
-          <h1 className="text-xl font-semibold text-fg">Simulador</h1>
-        </div>
-        <div className="rounded-xl border border-line bg-bg-1 p-8 text-center text-fg-3 text-sm">
-          <p className="font-mono text-xs tracking-wider uppercase mb-2">Sem dados</p>
-          <p>Tire um snapshot no dashboard antes de simular cenários.</p>
+      <div className="flex flex-col h-full items-center justify-center">
+        <div className="text-center max-w-sm">
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-3">WORKSPACE / SIMULADOR</div>
+          <h1 className="text-base font-semibold text-fg mb-2">Sem dados de snapshot</h1>
+          <p className="text-xs text-fg-3">
+            Tire um snapshot no dashboard antes de simular cenários.
+          </p>
         </div>
       </div>
     );
@@ -87,21 +94,10 @@ export default async function SimulatorPage() {
     : { ...POLICY_PRESETS.balanced, id: "fallback", version: 1, orgId, status: "active", activatedAt: null };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-8">
-        <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
-          Tesouraria / Simulador
-        </div>
-        <h1 className="text-xl font-semibold text-fg">Simulador de cenários</h1>
-        <p className="text-sm text-fg-3 mt-1">
-          Simule movimentos de capital e veja o impacto no runway, APR e compliance.
-        </p>
-      </div>
-      <Simulator
-        snapshot={snapshot}
-        policy={policy}
-        policyVersion={activePolicy?.version ?? 1}
-      />
-    </div>
+    <Simulator
+      snapshot={snapshot}
+      policy={policy}
+      policyVersion={activePolicy?.version ?? 1}
+    />
   );
 }

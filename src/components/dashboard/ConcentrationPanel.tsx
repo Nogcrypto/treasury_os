@@ -1,30 +1,51 @@
+"use client";
+
 interface ConcentrationPanelProps {
   totalUsd: number;
   liquidUsd: number;
   positions: { adapterId: string; amountUsd: number; protocol: string }[];
   complianceScore: number;
+  policyVersion?: number | null;
+  concentrationLimit?: number | null;
 }
 
 const SEGMENT_COLORS: Record<string, string> = {
   "kamino-usdc-devnet": "oklch(0.78 0.13 200)",
-  "mock-rwa-usdy": "oklch(0.74 0.18 295)",
-  liquid: "oklch(0.82 0.18 148)",
+  "mock-rwa-usdy":      "oklch(0.74 0.18 295)",
+  liquid:               "oklch(0.82 0.18 148)",
 };
 
 const SEGMENT_LABELS: Record<string, string> = {
-  "kamino-usdc-devnet": "Kamino",
-  "mock-rwa-usdy": "RWA (USDY)",
-  liquid: "USDC livre",
+  "kamino-usdc-devnet": "Kamino USDC",
+  "mock-rwa-usdy":      "Mock RWA",
+  liquid:               "USDC livre",
 };
 
-function DonutChart({ slices }: { slices: { pct: number; color: string; label: string }[] }) {
+function fmtUSD(n: number) {
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000)     return "$" + (n / 1_000).toFixed(1) + "k";
+  return "$" + n.toFixed(0);
+}
+
+function DonutChart({
+  slices,
+  totalUsd,
+}: {
+  slices: { pct: number; color: string }[];
+  totalUsd: number;
+}) {
   let cumulative = 0;
-  const cx = 60, cy = 60, r = 44, strokeWidth = 16;
+  const cx = 56, cy = 56, r = 40, strokeWidth = 14;
   const circumference = 2 * Math.PI * r;
 
   return (
-    <svg width="120" height="120" viewBox="0 0 120 120">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="oklch(0.20 0.006 240)" strokeWidth={strokeWidth} />
+    <svg width="112" height="112" viewBox="0 0 112 112">
+      <circle
+        cx={cx} cy={cy} r={r}
+        fill="none"
+        stroke="oklch(0.20 0.006 240)"
+        strokeWidth={strokeWidth}
+      />
       {slices.map((slice, i) => {
         const offset = circumference * (1 - cumulative / 100);
         const dash = (slice.pct / 100) * circumference;
@@ -38,22 +59,42 @@ function DonutChart({ slices }: { slices: { pct: number; color: string; label: s
             strokeDasharray={`${dash} ${circumference - dash}`}
             strokeDashoffset={offset}
             strokeLinecap="butt"
-            style={{ transform: "rotate(-90deg)", transformOrigin: "60px 60px" }}
+            style={{ transform: "rotate(-90deg)", transformOrigin: "56px 56px" }}
           />
         );
         cumulative += slice.pct;
         return el;
       })}
+      <text
+        x={cx} y={cy - 4}
+        textAnchor="middle"
+        fill="oklch(0.90 0.012 240)"
+        fontSize="11"
+        fontWeight="600"
+        fontFamily="monospace"
+      >
+        {fmtUSD(totalUsd)}
+      </text>
+      <text
+        x={cx} y={cy + 10}
+        textAnchor="middle"
+        fill="oklch(0.48 0.012 240)"
+        fontSize="8"
+        fontFamily="monospace"
+      >
+        total
+      </text>
     </svg>
   );
 }
 
 function ComplianceGauge({ score }: { score: number }) {
-  const r = 40;
-  const cx = 60, cy = 58;
-  const arcLength = Math.PI * r;
-  const filled = (score / 100) * arcLength;
-  const scoreColor = score >= 80 ? "oklch(0.82 0.18 148)" : score >= 60 ? "oklch(0.82 0.16 80)" : "oklch(0.68 0.22 25)";
+  const r = 36;
+  const cx = 52, cy = 50;
+  const scoreColor =
+    score >= 80 ? "oklch(0.82 0.18 148)"
+    : score >= 60 ? "oklch(0.82 0.16 80)"
+    : "oklch(0.68 0.22 25)";
 
   const describeArc = (startRad: number, endRad: number) => {
     const x1 = cx + r * Math.cos(startRad);
@@ -68,22 +109,42 @@ function ComplianceGauge({ score }: { score: number }) {
   const fillPath = describeArc(Math.PI, fillEnd);
 
   return (
-    <svg width="120" height="74" viewBox="0 0 120 74">
-      <path d={bgPath} fill="none" stroke="oklch(0.20 0.006 240)" strokeWidth="14" strokeLinecap="round" />
+    <svg width="104" height="64" viewBox="0 0 104 64">
+      <path d={bgPath} fill="none" stroke="oklch(0.20 0.006 240)" strokeWidth="12" strokeLinecap="round" />
       {score > 0 && (
-        <path d={fillPath} fill="none" stroke={scoreColor} strokeWidth="14" strokeLinecap="round" />
+        <path d={fillPath} fill="none" stroke={scoreColor} strokeWidth="12" strokeLinecap="round" />
       )}
-      <text x={cx} y={cy + 10} textAnchor="middle" fill={scoreColor} fontSize="18" fontWeight="600" fontFamily="monospace">
+      <text
+        x={cx} y={cy + 8}
+        textAnchor="middle"
+        fill={scoreColor}
+        fontSize="18"
+        fontWeight="600"
+        fontFamily="monospace"
+      >
         {score}
       </text>
-      <text x={cx} y={cy + 24} textAnchor="middle" fill="oklch(0.48 0.012 240)" fontSize="9" fontFamily="monospace">
+      <text
+        x={cx} y={cy + 22}
+        textAnchor="middle"
+        fill="oklch(0.48 0.012 240)"
+        fontSize="8"
+        fontFamily="monospace"
+      >
         /100
       </text>
     </svg>
   );
 }
 
-export function ConcentrationPanel({ totalUsd, liquidUsd, positions, complianceScore }: ConcentrationPanelProps) {
+export function ConcentrationPanel({
+  totalUsd,
+  liquidUsd,
+  positions,
+  complianceScore,
+  policyVersion,
+  concentrationLimit,
+}: ConcentrationPanelProps) {
   const allSlices = [
     { key: "liquid", amount: liquidUsd },
     ...positions.map((p) => ({ key: p.adapterId, amount: p.amountUsd })),
@@ -98,39 +159,53 @@ export function ConcentrationPanel({ totalUsd, liquidUsd, positions, complianceS
 
   return (
     <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
-      <div className="px-4 py-3 border-b border-line text-xs font-mono text-fg-3 uppercase tracking-wider">
-        Concentração & Compliance
-      </div>
-      <div className="p-4 flex items-center gap-6">
-        {/* Donut */}
-        <div className="shrink-0">
-          <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider mb-2 text-center">Alocação</div>
-          <DonutChart slices={slices} />
+      {/* Header */}
+      <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-fg-3">◎</span>
+          <span className="text-xs font-medium text-fg">Concentração</span>
         </div>
+        {concentrationLimit != null && (
+          <span className="text-[10px] font-mono text-fg-3">LIMITE {concentrationLimit}%</span>
+        )}
+      </div>
 
-        {/* Legend */}
-        <div className="flex-1 space-y-2 min-w-0">
+      {/* Donut + Legend */}
+      <div className="p-4 flex gap-4 items-start">
+        <div className="shrink-0">
+          <DonutChart slices={slices} totalUsd={totalUsd} />
+        </div>
+        <div className="flex-1 min-w-0 space-y-2.5 pt-1">
           {slices.map((s) => (
             <div key={s.label} className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between text-xs">
-                  <span className="text-fg-2 truncate">{s.label}</span>
-                  <span className="font-mono text-fg shrink-0 ml-2">{s.pct.toFixed(1)}%</span>
-                </div>
-                <div className="h-1 bg-bg-2 rounded-full mt-0.5 overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
-                </div>
-              </div>
+              <div
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: s.color }}
+              />
+              <span className="flex-1 text-xs text-fg-2 min-w-0">{s.label}</span>
+              <span className="text-[11px] font-mono text-fg-3 shrink-0">
+                {fmtUSD(s.amount)}
+              </span>
+              <span className="text-[11px] font-mono text-fg shrink-0 w-10 text-right">
+                {s.pct.toFixed(1)}%
+              </span>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* Compliance gauge */}
-        <div className="shrink-0 text-center">
-          <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider mb-1">Compliance</div>
+      {/* Compliance */}
+      <div className="px-4 pb-4 border-t border-line pt-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">
+            Compliance Score
+          </span>
+          <span className="text-[10px] font-mono text-fg-3">
+            política v{policyVersion ?? 1}
+          </span>
+        </div>
+        <div className="flex items-center justify-center">
           <ComplianceGauge score={complianceScore} />
-          <div className="text-[10px] font-mono text-fg-3">política v3</div>
         </div>
       </div>
     </div>

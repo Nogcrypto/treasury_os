@@ -12,11 +12,10 @@ import type {
 const MONTHS_PER_YEAR = 12;
 
 // Monthly burn derived from obligations labeled "operating" or "payroll"
-function estimateMonthlyBurnUsd(snapshot: TreasurySnapshot): number {
+export function estimateMonthlyBurnUsd(snapshot: TreasurySnapshot): number {
   const monthly = snapshot.obligations
     .filter((o) => o.recurrence === "monthly")
     .reduce((sum, o) => sum + o.amountUsd, 0);
-  // fallback: annualize quarterly/annual obligations
   const quarterly = snapshot.obligations
     .filter((o) => o.recurrence === "quarterly")
     .reduce((sum, o) => sum + o.amountUsd / 3, 0);
@@ -61,13 +60,51 @@ function complianceScore(violations: PolicyViolation[]): number {
   return Math.max(0, 100 - penalties);
 }
 
+// ── Apply actions to snapshot (returns modified state for visualization) ───────
+
+export function applyScenarioActions(
+  snapshot: TreasurySnapshot,
+  actions: ScenarioAction[]
+): { liquidUsd: number; positions: TreasurySnapshot["positions"] } {
+  let liquidUsd = snapshot.liquidUsd;
+  const positions = snapshot.positions.map((p) => ({ ...p }));
+
+  for (const action of actions) {
+    const existing = positions.find((p) => p.adapterId === action.adapterId);
+    if (action.kind === "deposit") {
+      liquidUsd -= action.amountUsd;
+      if (existing) {
+        existing.amountUsd += action.amountUsd;
+      } else {
+        positions.push({
+          adapterId: action.adapterId,
+          protocol: action.meta?.protocol ?? action.adapterId,
+          asset: "USDC",
+          amountUsd: action.amountUsd,
+          aprPct: action.meta?.aprPct ?? 0,
+          accruedYieldUsd: 0,
+          riskTier: action.meta?.riskTier ?? 1,
+          unlockDays: action.meta?.unlockDays ?? 0,
+        });
+      }
+    } else if (action.kind === "withdraw" && existing) {
+      const withdrawn = Math.min(action.amountUsd, existing.amountUsd);
+      existing.amountUsd -= withdrawn;
+      liquidUsd += withdrawn;
+    }
+  }
+
+  return { liquidUsd, positions: positions.filter((p) => p.amountUsd > 0) };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function projectRunway(
   snapshot: TreasurySnapshot,
-  policy: Policy
+  policy: Policy,
+  monthlyBurnOverride?: number
 ): ProjectionResult {
-  const monthlyBurn = estimateMonthlyBurnUsd(snapshot);
+  const monthlyBurn = monthlyBurnOverride ?? estimateMonthlyBurnUsd(snapshot);
   const deployed = snapshot.positions.reduce((s, p) => s + p.amountUsd, 0);
   const liquid = snapshot.liquidUsd;
   const total = snapshot.totalUsd;
@@ -85,8 +122,8 @@ export function projectRunway(
   );
   const protectedUsd = protectedBuckets.reduce((s, b) => s + b.balanceUsd, 0);
 
-  const liquidRunwayMonths = liquid / monthlyBurn;
-  const protectedRunwayMonths = protectedUsd / monthlyBurn;
+  const liquidRunwayMonths = monthlyBurn > 0 ? liquid / monthlyBurn : 999;
+  const protectedRunwayMonths = monthlyBurn > 0 ? protectedUsd / monthlyBurn : 999;
 
   const violations = evaluateViolations(snapshot, policy, {
     liquidRunwayMonths,
@@ -114,43 +151,18 @@ export function projectRunway(
 export function projectScenario(
   snapshot: TreasurySnapshot,
   policy: Policy,
-  actions: ScenarioAction[]
+  actions: ScenarioAction[],
+  monthlyBurnOverride?: number
 ): ProjectionResult {
-  let { liquidUsd, totalUsd } = snapshot;
-  const positions = snapshot.positions.map((p) => ({ ...p }));
-
-  for (const action of actions) {
-    const existing = positions.find((p) => p.adapterId === action.adapterId);
-    if (action.kind === "deposit") {
-      liquidUsd -= action.amountUsd;
-      if (existing) {
-        existing.amountUsd += action.amountUsd;
-      } else {
-        positions.push({
-          adapterId: action.adapterId,
-          protocol: action.adapterId,
-          asset: "USDC",
-          amountUsd: action.amountUsd,
-          aprPct: 0,
-          accruedYieldUsd: 0,
-          riskTier: 1,
-          unlockDays: 0,
-        });
-      }
-    } else if (action.kind === "withdraw" && existing) {
-      const withdrawn = Math.min(action.amountUsd, existing.amountUsd);
-      existing.amountUsd -= withdrawn;
-      liquidUsd += withdrawn;
-    }
-  }
+  const { liquidUsd, positions } = applyScenarioActions(snapshot, actions);
 
   const modified: TreasurySnapshot = {
     ...snapshot,
     liquidUsd,
-    totalUsd,
+    totalUsd: snapshot.totalUsd,
     positions,
   };
-  return projectRunway(modified, policy);
+  return projectRunway(modified, policy, monthlyBurnOverride);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

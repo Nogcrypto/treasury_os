@@ -2,18 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { ExecutionDrawer } from "@/components/ExecutionDrawer";
-import { approveIntent, executeSimulated, rejectIntent } from "./actions";
+import { ExecutionDrawer, type IntentRow } from "@/components/ExecutionDrawer";
+import { approveIntent, executeSimulated, rejectIntent, createIntent } from "./actions";
 
-interface Intent {
-  id: string;
-  kind: string;
-  status: string;
-  paramsJson: unknown;
-  createdAt: Date | string;
-}
-
-export function ExecutionClient({ intents }: { intents: Intent[] }) {
+export function ExecutionClient({
+  intents,
+  walletAddress,
+}: {
+  intents: IntentRow[];
+  walletAddress?: string;
+}) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -36,12 +34,19 @@ export function ExecutionClient({ intents }: { intents: Intent[] }) {
     refresh();
   }
 
+  async function handleCreate(data: { kind: string; adapterId: string; amountUsd: number }) {
+    await createIntent(data);
+    refresh();
+  }
+
   return (
     <ExecutionDrawer
-      intents={intents as Parameters<typeof ExecutionDrawer>[0]["intents"]}
+      intents={intents}
+      walletAddress={walletAddress}
       onApprove={handleApprove}
       onExecute={handleExecute}
       onReject={handleReject}
+      onCreate={handleCreate}
     />
   );
 }

@@ -28,6 +28,8 @@ export default async function AppLayout({
           orgId={DEMO_ORG_ID}
           walletAddress={undefined}
           userName={userName ?? "Demo User"}
+          alertCount={2}
+          showTourAutoStart
         >
           {children}
         </AppShell>

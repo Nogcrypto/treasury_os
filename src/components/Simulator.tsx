@@ -1,329 +1,633 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
-import { projectRunway, projectScenario } from "@/lib/rules-engine/projections";
+import { useState, useMemo, useTransition } from "react";
+import {
+  projectRunway,
+  projectScenario,
+  applyScenarioActions,
+  estimateMonthlyBurnUsd,
+} from "@/lib/rules-engine/projections";
 import type { TreasurySnapshot, Policy, ScenarioAction, ProjectionResult } from "@/lib/rules-engine/types";
-import { saveRecommendation } from "@/app/(app)/simulator/actions";
+import { approveScenario } from "@/app/(app)/simulator/actions";
 
-function fmtUSD(n: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
+// ── Adapter metadata ──────────────────────────────────────────────────────────
+
+const ADAPTERS = [
+  {
+    id: "kamino-usdc-devnet",
+    label: "Kamino USDC",
+    protocol: "Kamino Finance",
+    aprPct: 5.84,
+    riskTier: 1 as const,
+    riskLabel: "T1",
+    lockLabel: null as string | null,
+    barColor: "bg-accent",
+    textColor: "text-accent",
+  },
+  {
+    id: "mock-rwa-usdy",
+    label: "Mock RWA (USDY)",
+    protocol: "Ondo Finance (USDY)",
+    aprPct: 4.82,
+    riskTier: 2 as const,
+    riskLabel: "T2",
+    lockLabel: "1D REDEEM",
+    barColor: "bg-accent-3",
+    textColor: "text-accent-3",
+  },
+  {
+    id: "sol-liquid-staking",
+    label: "SOL Liquid Staking",
+    protocol: "Marinade Finance",
+    aprPct: 7.2,
+    riskTier: 3 as const,
+    riskLabel: "T3",
+    lockLabel: "VOL",
+    barColor: "bg-warn",
+    textColor: "text-warn",
+  },
+] as const;
+
+type AdapterId = (typeof ADAPTERS)[number]["id"];
+
+const ADAPTER_BY_ID = Object.fromEntries(ADAPTERS.map((a) => [a.id, a])) as Record<string, typeof ADAPTERS[number]>;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtUSD(n: number, compact = false): string {
+  if (compact && Math.abs(n) >= 1000) {
+    return `$${(n / 1000).toFixed(0)}k`;
+  }
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-function Delta({ a, b, format = (n: number) => n.toFixed(1) }: { a: number; b: number; format?: (n: number) => string }) {
-  const diff = b - a;
-  if (Math.abs(diff) < 0.01) return <span className="text-fg-3">—</span>;
-  return (
-    <span className={diff > 0 ? "text-accent" : "text-neg"}>
-      {diff > 0 ? "+" : ""}{format(diff)}
-    </span>
-  );
+function getWhitelist(policy: Policy): string[] | null {
+  const rule = policy.rules.find((r) => r.id === "ALLOCATION_WHITELIST");
+  if (!rule?.enabled) return null;
+  const adapters = rule.params.adapters as string[] | undefined;
+  return adapters && adapters.length > 0 ? adapters : null;
 }
 
-function MetricRow({
-  label,
-  baseline,
-  scenario,
-  formatFn,
+function buildActions(
+  snapshot: TreasurySnapshot,
+  targets: Record<AdapterId, number>
+): ScenarioAction[] {
+  const actions: ScenarioAction[] = [];
+  for (const adapter of ADAPTERS) {
+    const currentPos = snapshot.positions.find((p) => p.adapterId === adapter.id);
+    const currentAmount = currentPos?.amountUsd ?? 0;
+    const targetAmount = targets[adapter.id] ?? 0;
+    const delta = targetAmount - currentAmount;
+    if (delta > 100) {
+      actions.push({
+        kind: "deposit",
+        adapterId: adapter.id,
+        amountUsd: Math.round(delta),
+        meta: { protocol: adapter.protocol, aprPct: adapter.aprPct, riskTier: adapter.riskTier, unlockDays: 0 },
+      });
+    } else if (delta < -100) {
+      actions.push({ kind: "withdraw", adapterId: adapter.id, amountUsd: Math.round(-delta) });
+    }
+  }
+  return actions;
+}
+
+function buildConservativeActions(snapshot: TreasurySnapshot): ScenarioAction[] {
+  const kamino = ADAPTERS[0];
+  const rwa = ADAPTERS[1];
+  const kaminoCurrent = snapshot.positions.find((p) => p.adapterId === kamino.id)?.amountUsd ?? 0;
+  const rwaCurrent = snapshot.positions.find((p) => p.adapterId === rwa.id)?.amountUsd ?? 0;
+
+  // Conservative: 40% Kamino, 20% RWA, keep rest liquid
+  const kaminoTarget = Math.round(snapshot.totalUsd * 0.40);
+  const rwaTarget = Math.round(snapshot.totalUsd * 0.20);
+
+  const actions: ScenarioAction[] = [];
+  let availLiquid = snapshot.liquidUsd;
+
+  const kaminoDelta = kaminoTarget - kaminoCurrent;
+  if (kaminoDelta > 100 && availLiquid > 0) {
+    const deposit = Math.min(kaminoDelta, availLiquid);
+    actions.push({ kind: "deposit", adapterId: kamino.id, amountUsd: deposit, meta: { protocol: kamino.protocol, aprPct: kamino.aprPct, riskTier: kamino.riskTier } });
+    availLiquid -= deposit;
+  } else if (kaminoDelta < -100) {
+    actions.push({ kind: "withdraw", adapterId: kamino.id, amountUsd: -kaminoDelta });
+    availLiquid += -kaminoDelta;
+  }
+
+  const rwaDelta = rwaTarget - rwaCurrent;
+  if (rwaDelta > 100 && availLiquid > 0) {
+    const deposit = Math.min(rwaDelta, availLiquid);
+    actions.push({ kind: "deposit", adapterId: rwa.id, amountUsd: deposit, meta: { protocol: rwa.protocol, aprPct: rwa.aprPct, riskTier: rwa.riskTier } });
+  } else if (rwaDelta < -100) {
+    actions.push({ kind: "withdraw", adapterId: rwa.id, amountUsd: -rwaDelta });
+  }
+
+  return actions;
+}
+
+function generateNarrative(
+  actions: ScenarioAction[],
+  proj: ProjectionResult,
+  baseline: ProjectionResult,
+  bLiquidUsd: number
+): string {
+  if (actions.length === 0) return "Nenhuma alteração aplicada. Ajuste os sliders para simular cenários.";
+  const totalDeposit = actions.filter((a) => a.kind === "deposit").reduce((s, a) => s + a.amountUsd, 0);
+  const yieldDelta = proj.estimatedYieldYearUsd - baseline.estimatedYieldYearUsd;
+  const scoreDelta = Math.round(proj.complianceScore - baseline.complianceScore);
+  const parts: string[] = [];
+  if (totalDeposit > 0) parts.push(`Aloca ${fmtUSD(totalDeposit, true)} mantendo runway protegido em ${proj.protectedRunwayMonths.toFixed(1)} meses.`);
+  if (yieldDelta > 0) parts.push(`Yield estimado +${fmtUSD(yieldDelta, true)}/ano.`);
+  if (scoreDelta > 0) parts.push(`Compliance sobe para ${Math.round(proj.complianceScore)}/100.`);
+  else if (scoreDelta < 0) parts.push(`Compliance cai para ${Math.round(proj.complianceScore)}/100 — verifique violações.`);
+  if (proj.violations.length > 0) parts.push(`⚠ ${proj.violations.length} violaç${proj.violations.length > 1 ? "ões" : "ão"} detectada${proj.violations.length > 1 ? "s" : ""}.`);
+  return parts.join(" ") || "Cenário válido — nenhuma violação detectada.";
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function ProtocolCard({
+  adapter,
+  targetAmount,
+  maxAmount,
+  onChange,
+  inWhitelist,
 }: {
-  label: string;
-  baseline: number;
-  scenario: number;
-  formatFn: (n: number) => string;
+  adapter: typeof ADAPTERS[number];
+  targetAmount: number;
+  maxAmount: number;
+  onChange: (v: number) => void;
+  inWhitelist: boolean;
 }) {
+  const monthlyYield = targetAmount * (adapter.aprPct / 100) / 12;
+  const step = Math.max(1_000, Math.round(maxAmount / 200) * 1_000);
+
   return (
-    <div className="grid grid-cols-3 gap-2 py-2 border-b border-line last:border-0 text-sm">
-      <div className="text-fg-3">{label}</div>
-      <div className="font-mono text-fg text-right">{formatFn(baseline)}</div>
-      <div className="font-mono text-right">
-        <span className="text-fg">{formatFn(scenario)}</span>
-        {" "}
-        <Delta a={baseline} b={scenario} format={formatFn} />
+    <div className="px-4 py-3 border-b border-line">
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className={`text-xs ${adapter.textColor}`}>◈</span>
+          <span className="text-xs font-medium text-fg">{adapter.label}</span>
+        </div>
+        <span className="text-xs font-semibold font-mono text-fg">{fmtUSD(targetAmount)}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={maxAmount}
+        step={step}
+        value={Math.min(targetAmount, maxAmount)}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={`w-full mb-2 accent-accent`}
+        disabled={maxAmount <= 0}
+      />
+      <div className="flex items-center justify-between flex-wrap gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[9px] font-mono text-fg-3">APR {adapter.aprPct.toFixed(2)}%</span>
+          <span className="text-[9px] font-mono text-fg-3">· RISK {adapter.riskLabel}</span>
+          {adapter.lockLabel && <span className="text-[9px] font-mono text-fg-3">· {adapter.lockLabel}</span>}
+          {!inWhitelist && (
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-warn/40 bg-warn/10 text-warn">
+              FORA WHITELIST
+            </span>
+          )}
+        </div>
+        {targetAmount > 0 && (
+          <span className="text-[9px] font-mono text-accent shrink-0">
+            +{fmtUSD(monthlyYield, true)}/mo
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-interface SimulatorProps {
+function BurnCard({
+  value,
+  defaultValue,
+  onChange,
+}: {
+  value: number;
+  defaultValue: number;
+  onChange: (v: number) => void;
+}) {
+  const min = Math.round(defaultValue * 0.3 / 1000) * 1000;
+  const max = Math.round(defaultValue * 2.5 / 1000) * 1000;
+  const step = Math.max(1_000, Math.round((max - min) / 100) * 1_000);
+  const isOverridden = Math.abs(value - defaultValue) > 500;
+
+  return (
+    <div className="px-4 py-3 border-b border-line">
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-neg">↓</span>
+          <span className="text-xs font-medium text-fg">Burn projetado</span>
+          {isOverridden && (
+            <span className="text-[9px] font-mono text-warn border border-warn/30 bg-warn/5 px-1.5 rounded">
+              OVERRIDE
+            </span>
+          )}
+        </div>
+        <span className="text-xs font-semibold font-mono text-fg">{fmtUSD(value, true)}/mo</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full mb-1 accent-warn"
+      />
+      <div className="flex justify-between text-[9px] font-mono text-fg-3">
+        <span>{fmtUSD(min, true)}/mo</span>
+        <span>{fmtUSD(max, true)}/mo</span>
+      </div>
+    </div>
+  );
+}
+
+type MetricDef = {
+  label: string;
+  baseValue: (p: ProjectionResult, l: number) => number;
+  scenValue: (p: ProjectionResult, l: number) => number;
+  fmt: (n: number) => string;
+  fmtDelta: (d: number) => string;
+  higherIsBetter: boolean;
+};
+
+const METRIC_DEFS: MetricDef[] = [
+  { label: "Liquid runway",    baseValue: (p) => p.liquidRunwayMonths,    scenValue: (p) => p.liquidRunwayMonths,    fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
+  { label: "Protected runway", baseValue: (p) => p.protectedRunwayMonths, scenValue: (p) => p.protectedRunwayMonths, fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
+  { label: "Yield/yr (est)",   baseValue: (p) => p.estimatedYieldYearUsd, scenValue: (p) => p.estimatedYieldYearUsd, fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
+  { label: "APR blended",      baseValue: (p) => p.blendedAprPct,         scenValue: (p) => p.blendedAprPct,         fmt: (n) => `${n.toFixed(2)}%`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${(d * 100).toFixed(0)}bps`, higherIsBetter: true },
+  { label: "Concentration",    baseValue: (p) => p.topConcentrationPct,   scenValue: (p) => p.topConcentrationPct,   fmt: (n) => `${n.toFixed(1)}%`,  fmtDelta: (d) => d.toFixed(1), higherIsBetter: false },
+  { label: "Compliance",       baseValue: (p) => p.complianceScore,       scenValue: (p) => p.complianceScore,       fmt: (n) => `${Math.round(n)}/100`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${Math.round(d)}`, higherIsBetter: true },
+  { label: "USDC livre",       baseValue: (_, l) => l,                    scenValue: (_, l) => l,                    fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
+];
+
+function BaselineColumn({
+  proj,
+  liquidUsd,
+  policyVersion,
+}: {
+  proj: ProjectionResult;
+  liquidUsd: number;
+  policyVersion: number;
+}) {
+  return (
+    <div className="min-w-52 border-r border-line flex flex-col shrink-0">
+      <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+        <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">BASELINE · ATUAL</span>
+        <span className="text-[9px] font-mono bg-bg-2 border border-line rounded px-1.5 py-0.5 text-fg-3">v{policyVersion}</span>
+      </div>
+      {METRIC_DEFS.map((m) => (
+        <div key={m.label} className="px-4 py-3 border-b border-line last:border-0 flex items-center justify-between">
+          <span className="text-xs text-fg-3">{m.label}</span>
+          <span className="text-xs font-mono text-fg font-semibold">{m.fmt(m.baseValue(proj, liquidUsd))}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DeltaTag({
+  baseline,
+  value,
+  fmtDelta,
+  higherIsBetter,
+}: {
+  baseline: number;
+  value: number;
+  fmtDelta: (d: number) => string;
+  higherIsBetter: boolean;
+}) {
+  const diff = value - baseline;
+  if (Math.abs(diff) < 0.005) return <span className="text-[10px] font-mono text-fg-3">±0</span>;
+  const isGood = higherIsBetter ? diff > 0 : diff < 0;
+  return (
+    <span className={`text-[10px] font-mono ${isGood ? "text-accent" : "text-neg"}`}>
+      {fmtDelta(diff)}
+    </span>
+  );
+}
+
+function ScenarioColumn({
+  id,
+  sublabel,
+  proj,
+  baseline,
+  liquidUsd,
+  baselineLiquidUsd,
+  isSelected,
+  isRecommended,
+  violations,
+  onClick,
+}: {
+  id: "a" | "b";
+  sublabel: string;
+  proj: ProjectionResult;
+  baseline: ProjectionResult;
+  liquidUsd: number;
+  baselineLiquidUsd: number;
+  isSelected: boolean;
+  isRecommended?: boolean;
+  violations: typeof proj.violations;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={`min-w-44 flex flex-col shrink-0 cursor-pointer border-r border-line transition-colors ${
+        isSelected && isRecommended
+          ? "border-l-2 border-l-accent bg-accent/3"
+          : isSelected
+          ? "bg-bg-2"
+          : "hover:bg-bg-2/50"
+      }`}
+    >
+      <div className={`px-4 py-3 border-b border-line flex items-center justify-between ${isRecommended && isSelected ? "border-accent/20" : ""}`}>
+        <div>
+          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">
+            CENÁRIO {id.toUpperCase()} · {sublabel}
+          </span>
+          {isRecommended && (
+            <span className="ml-1 text-[9px] text-accent">★</span>
+          )}
+        </div>
+        {violations.length > 0 && (
+          <span className="text-[9px] font-mono text-neg border border-neg/30 bg-neg/5 px-1.5 rounded">
+            {violations.length}✕
+          </span>
+        )}
+      </div>
+      {METRIC_DEFS.map((m) => {
+        const bVal = m.baseValue(baseline, baselineLiquidUsd);
+        const sVal = m.scenValue(proj, liquidUsd);
+        return (
+          <div key={m.label} className="px-4 py-3 border-b border-line last:border-0 text-right">
+            <div className="text-xs font-mono text-fg font-semibold">{m.fmt(sVal)}</div>
+            <DeltaTag baseline={bVal} value={sVal} fmtDelta={m.fmtDelta} higherIsBetter={m.higherIsBetter} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BeforeAfterBar({
+  label,
+  positions,
+  liquidUsd,
+  totalUsd,
+}: {
+  label: string;
+  positions: TreasurySnapshot["positions"];
+  liquidUsd: number;
+  totalUsd: number;
+}) {
+  if (totalUsd <= 0) return null;
+
+  const segments: { id: string; label: string; pct: number; color: string }[] = [];
+  if (liquidUsd > 0) {
+    segments.push({ id: "liquid", label: "USDC LIVRE · 0% YIELD", pct: liquidUsd / totalUsd, color: "bg-bg-3" });
+  }
+  for (const pos of positions) {
+    if (pos.amountUsd <= 0) continue;
+    const meta = ADAPTER_BY_ID[pos.adapterId];
+    segments.push({
+      id: pos.adapterId,
+      label: `${meta?.label ?? pos.adapterId.toUpperCase()} · ${pos.aprPct.toFixed(2)}%`,
+      pct: pos.amountUsd / totalUsd,
+      color: meta?.barColor ?? "bg-fg-3",
+    });
+  }
+
+  return (
+    <div>
+      <div className="text-[9px] font-mono text-fg-3 uppercase mb-1.5">{label}</div>
+      <div className="flex h-9 rounded overflow-hidden gap-px">
+        {segments.map((seg) => (
+          <div
+            key={seg.id}
+            style={{ flex: seg.pct }}
+            className={`${seg.color} flex items-center px-2 text-[9px] font-mono truncate ${seg.color === "bg-bg-3" ? "text-fg-3" : "text-bg-0"}`}
+          >
+            {seg.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export interface SimulatorProps {
   snapshot: TreasurySnapshot;
   policy: Policy;
   policyVersion: number;
 }
 
 export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
-  const realLiquid = snapshot.liquidUsd;
-  const realTotal  = snapshot.totalUsd;
-  const hasRealCapital = realTotal > 0;
+  const defaultBurn = useMemo(() => estimateMonthlyBurnUsd(snapshot), [snapshot]);
 
-  // Hypothetical mode: override when wallet has no balance (devnet / no snapshot)
-  const [hypotheticalInput, setHypotheticalInput] = useState(
-    hasRealCapital ? "" : "500000"
-  );
-  const [useHypothetical, setUseHypothetical] = useState(!hasRealCapital);
+  // Scenario B: user-controlled targets (absolute allocation per adapter)
+  const [targets, setTargets] = useState<Record<AdapterId, number>>(() => {
+    const t: Record<string, number> = {};
+    for (const a of ADAPTERS) {
+      const pos = snapshot.positions.find((p) => p.adapterId === a.id);
+      t[a.id] = pos?.amountUsd ?? 0;
+    }
+    return t as Record<AdapterId, number>;
+  });
+  const [burnSlider, setBurnSlider] = useState(defaultBurn);
+  const [selected, setSelected] = useState<"a" | "b">("b");
+  const [approved, setApproved] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
-  const hypotheticalUsd = parseFloat(hypotheticalInput.replace(/[^0-9.]/g, "")) || 0;
+  const whitelist = useMemo(() => getWhitelist(policy), [policy]);
 
-  // The snapshot fed to projections — swap totalUsd/liquidUsd when in hypothetical mode
-  const effectiveSnapshot: TreasurySnapshot = useMemo(() => {
-    if (!useHypothetical || hypotheticalUsd <= 0) return snapshot;
-    return {
-      ...snapshot,
-      totalUsd:  hypotheticalUsd,
-      liquidUsd: hypotheticalUsd,
-      positions: [],
-    };
-  }, [snapshot, useHypothetical, hypotheticalUsd]);
+  // Scenario A: conservative, auto-generated
+  const scenarioAActions = useMemo(() => buildConservativeActions(snapshot), [snapshot]);
 
-  const liquidMax = useHypothetical ? hypotheticalUsd : realLiquid;
-
-  const kaminoPos = effectiveSnapshot.positions.find((p) => p.adapterId === "kamino-usdc-devnet");
-  const rwaPos    = effectiveSnapshot.positions.find((p) => p.adapterId === "mock-rwa-usdy");
-
-  const [depositKamino, setDepositKamino] = useState(0);
-  const [depositRwa, setDepositRwa] = useState(0);
-  const [withdrawKamino, setWithdrawKamino] = useState(0);
-  const [withdrawRwa, setWithdrawRwa] = useState(0);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  const actions: ScenarioAction[] = useMemo(() => {
-    const result: ScenarioAction[] = [];
-    if (depositKamino > 0)  result.push({ kind: "deposit",  adapterId: "kamino-usdc-devnet", amountUsd: depositKamino });
-    if (depositRwa > 0)     result.push({ kind: "deposit",  adapterId: "mock-rwa-usdy",      amountUsd: depositRwa });
-    if (withdrawKamino > 0) result.push({ kind: "withdraw", adapterId: "kamino-usdc-devnet", amountUsd: withdrawKamino });
-    if (withdrawRwa > 0)    result.push({ kind: "withdraw", adapterId: "mock-rwa-usdy",      amountUsd: withdrawRwa });
-    return result;
-  }, [depositKamino, depositRwa, withdrawKamino, withdrawRwa]);
-
-  const baseline: ProjectionResult = useMemo(() => projectRunway(effectiveSnapshot, policy), [effectiveSnapshot, policy]);
-  const scenario: ProjectionResult = useMemo(
-    () => (actions.length > 0 ? projectScenario(effectiveSnapshot, policy, actions) : baseline),
-    [effectiveSnapshot, policy, actions, baseline]
+  // Scenario B: from sliders
+  const scenarioBActions = useMemo(
+    () => buildActions(snapshot, targets),
+    [snapshot, targets]
   );
 
-  const hasChanges = actions.length > 0;
+  // Projections
+  const baseline = useMemo(() => projectRunway(snapshot, policy, burnSlider), [snapshot, policy, burnSlider]);
+  const scenarioA = useMemo(() => projectScenario(snapshot, policy, scenarioAActions, burnSlider), [snapshot, policy, scenarioAActions, burnSlider]);
+  const scenarioB = useMemo(() => projectScenario(snapshot, policy, scenarioBActions, burnSlider), [snapshot, policy, scenarioBActions, burnSlider]);
 
-  function handleSave() {
-    if (!hasChanges) return;
-    setSaveError(null);
-    setSaved(false);
-    const rationale = `Simulação: ${actions.map((a) => `${a.kind} $${a.amountUsd.toLocaleString()} em ${a.adapterId}`).join(", ")}`;
+  // Post-scenario liquid for visualization + USDC livre metric
+  const { liquidUsd: aLiquidUsd, positions: aPositions } = useMemo(
+    () => applyScenarioActions(snapshot, scenarioAActions),
+    [snapshot, scenarioAActions]
+  );
+  const { liquidUsd: bLiquidUsd, positions: bPositions } = useMemo(
+    () => applyScenarioActions(snapshot, scenarioBActions),
+    [snapshot, scenarioBActions]
+  );
+
+  const narrative = useMemo(
+    () => generateNarrative(scenarioBActions, scenarioB, baseline, bLiquidUsd),
+    [scenarioBActions, scenarioB, baseline, bLiquidUsd]
+  );
+
+  function handleReset() {
+    const t: Record<string, number> = {};
+    for (const a of ADAPTERS) {
+      const pos = snapshot.positions.find((p) => p.adapterId === a.id);
+      t[a.id] = pos?.amountUsd ?? 0;
+    }
+    setTargets(t as Record<AdapterId, number>);
+    setBurnSlider(defaultBurn);
+    setApproved(false);
+    setApproveError(null);
+  }
+
+  function handleApprove() {
+    if (approved || scenarioBActions.length === 0) return;
+    setApproveError(null);
+    const rationale = generateNarrative(scenarioBActions, scenarioB, baseline, bLiquidUsd);
     startTransition(async () => {
-      const result = await saveRecommendation(actions, rationale);
-      if (!result.ok) return setSaveError(result.error ?? "Erro ao salvar.");
-      setSaved(true);
+      const res = await approveScenario(scenarioBActions, rationale);
+      if (res.ok) setApproved(true);
+      else setApproveError(res.error ?? "Erro ao aprovar");
     });
   }
 
+  const hasChanges = scenarioBActions.length > 0;
+  // Max per adapter: existing position + all available liquid
+  function maxForAdapter(adapterId: AdapterId): number {
+    const pos = snapshot.positions.find((p) => p.adapterId === adapterId);
+    return (pos?.amountUsd ?? 0) + snapshot.liquidUsd;
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Capital base — shown when wallet is empty or hypothetical mode active */}
-      <div className="rounded-xl border border-line bg-bg-1 p-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-0.5">
-              Capital base
-            </div>
-            <div className="text-sm text-fg-2">
-              {hasRealCapital
-                ? <span className="font-mono text-fg">{fmtUSD(realTotal)} na carteira</span>
-                : <span className="text-warn font-mono">$0 detectado — usando capital hipotético</span>
-              }
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-fg-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={useHypothetical}
-              onChange={(e) => {
-                setUseHypothetical(e.target.checked);
-                setDepositKamino(0);
-                setDepositRwa(0);
-                setWithdrawKamino(0);
-                setWithdrawRwa(0);
-              }}
-              className="accent-accent"
-            />
-            Modo hipotético
-          </label>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-line flex items-start justify-between gap-4 shrink-0">
+        <div className="min-w-0">
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-widest mb-1">WORKSPACE / SIMULADOR</div>
+          <h1 className="text-base font-semibold text-fg mb-0.5">Cenários · simulate_scenario()</h1>
+          <p className="text-[11px] text-fg-3 max-w-lg leading-relaxed">
+            Função pura{" "}
+            <code className="font-mono bg-bg-2 border border-line rounded px-1 py-px text-fg-2">
+              projectRunway(snapshot, obligations, policy)
+            </code>{" "}
+            recomputada em tempo real. Sem persistir. Compare baseline com até 2 cenários.
+          </p>
         </div>
-        {useHypothetical && (
-          <div className="mt-3 flex items-center gap-3">
-            <span className="text-xs text-fg-3 font-mono shrink-0">Capital hipotético (USD)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={hypotheticalInput}
-              onChange={(e) => {
-                setHypotheticalInput(e.target.value);
-                setDepositKamino(0);
-                setDepositRwa(0);
-              }}
-              placeholder="500000"
-              className="w-40 bg-bg-2 border border-line rounded-lg px-3 py-1.5 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors"
-            />
-            <span className="text-xs text-fg-3">{fmtUSD(hypotheticalUsd)}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Controls */}
-      <div className="space-y-6">
-        <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
-          <div className="px-4 py-3 border-b border-line text-xs font-mono text-fg-3 uppercase tracking-wider">
-            Ações simuladas
-          </div>
-          <div className="p-4 space-y-5">
-            {/* Kamino deposits */}
-            <SliderGroup
-              title="Depositar em Kamino (T1 · 5.84% APR)"
-              value={depositKamino}
-              max={Math.max(0, liquidMax - depositRwa)}
-              onChange={(v) => { setDepositKamino(v); setWithdrawKamino(0); }}
-              accent="text-accent"
-            />
-            {/* RWA deposits */}
-            <SliderGroup
-              title="Depositar em Mock RWA (T2 · 4.82% APR)"
-              value={depositRwa}
-              max={Math.max(0, liquidMax - depositKamino)}
-              onChange={(v) => { setDepositRwa(v); setWithdrawRwa(0); }}
-              accent="text-accent"
-            />
-            {/* Kamino withdrawals */}
-            {kaminoPos && kaminoPos.amountUsd > 0 && (
-              <SliderGroup
-                title="Sacar do Kamino"
-                value={withdrawKamino}
-                max={kaminoPos.amountUsd}
-                onChange={(v) => { setWithdrawKamino(v); setDepositKamino(0); }}
-                accent="text-warn"
-              />
-            )}
-            {/* RWA withdrawals */}
-            {rwaPos && rwaPos.amountUsd > 0 && (
-              <SliderGroup
-                title="Sacar do Mock RWA"
-                value={withdrawRwa}
-                max={rwaPos.amountUsd}
-                onChange={(v) => { setWithdrawRwa(v); setDepositRwa(0); }}
-                accent="text-warn"
-              />
-            )}
-
-            {!kaminoPos && !rwaPos && depositKamino === 0 && depositRwa === 0 && (
-              <div className="text-xs text-fg-3 text-center py-2">
-                Use os sliders acima para simular movimentos de capital.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Save recommendation */}
-        <div className="flex items-center gap-3">
-          {saveError && <span className="text-xs text-neg flex-1">{saveError}</span>}
-          {saved && <span className="text-xs text-accent flex-1">Salvo como recomendação ✓</span>}
-          {!saveError && !saved && <span className="flex-1" />}
+        <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={handleSave}
-            disabled={!hasChanges || isPending || saved}
-            className="px-4 py-2 rounded-lg border border-line text-xs text-fg-2 hover:border-accent/40 hover:bg-accent/5 hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            onClick={handleReset}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs text-fg-3 hover:text-fg hover:border-accent/40 transition-colors"
           >
-            {isPending ? "Salvando…" : "Salvar como recomendação →"}
+            ↺ Reset
+          </button>
+          {approveError && <span className="text-xs text-neg">{approveError}</span>}
+          <button
+            onClick={handleApprove}
+            disabled={!hasChanges || approved}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-all"
+          >
+            {approved ? "✓ Aprovado" : `✓ Aprovar cenário ${selected.toUpperCase()}`}
           </button>
         </div>
       </div>
 
-      {/* Results */}
-      <div className="space-y-4">
-        <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
-          <div className="px-4 py-3 border-b border-line">
-            <div className="grid grid-cols-3 gap-2 text-xs font-mono text-fg-3 uppercase tracking-wider">
-              <div>Métrica</div>
-              <div className="text-right">Atual</div>
-              <div className="text-right">Simulado</div>
-            </div>
+      {/* Body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: Variables panel */}
+        <div className="w-56 border-r border-line flex flex-col overflow-y-auto shrink-0">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">⊙ Variáveis</span>
+            <span className="text-[9px] font-mono text-accent uppercase">CENÁRIO B</span>
           </div>
-          <div className="px-4 py-2">
-            <MetricRow label="Runway líquido" baseline={baseline.liquidRunwayMonths} scenario={scenario.liquidRunwayMonths} formatFn={(n) => `${n.toFixed(1)} mo`} />
-            <MetricRow label="APR médio" baseline={baseline.blendedAprPct} scenario={scenario.blendedAprPct} formatFn={(n) => `${n.toFixed(2)}%`} />
-            <MetricRow label="Yield anual" baseline={baseline.estimatedYieldYearUsd} scenario={scenario.estimatedYieldYearUsd} formatFn={(n) => fmtUSD(n)} />
-            <MetricRow label="Concentração" baseline={baseline.topConcentrationPct} scenario={scenario.topConcentrationPct} formatFn={(n) => `${n.toFixed(1)}%`} />
-            <MetricRow label="Compliance" baseline={baseline.complianceScore} scenario={scenario.complianceScore} formatFn={(n) => `${n}/100`} />
-          </div>
+
+          {ADAPTERS.map((adapter) => (
+            <ProtocolCard
+              key={adapter.id}
+              adapter={adapter}
+              targetAmount={targets[adapter.id] ?? 0}
+              maxAmount={maxForAdapter(adapter.id)}
+              onChange={(v) => setTargets((t) => ({ ...t, [adapter.id]: v }))}
+              inWhitelist={!whitelist || whitelist.includes(adapter.id)}
+            />
+          ))}
+
+          <BurnCard
+            value={burnSlider}
+            defaultValue={defaultBurn}
+            onChange={setBurnSlider}
+          />
         </div>
 
-        {/* Violations in scenario */}
-        {hasChanges && scenario.violations.length > 0 && (
-          <div className="rounded-xl border border-warn/30 bg-warn/5 p-4">
-            <div className="text-xs font-mono text-warn uppercase tracking-wider mb-2">
-              {scenario.violations.length} violaç{scenario.violations.length > 1 ? "ões" : "ão"} no cenário
-            </div>
-            <ul className="space-y-1">
-              {scenario.violations.map((v, i) => (
-                <li key={i} className="text-xs text-fg-2 flex gap-2">
-                  <span className={v.severity === "block" ? "text-neg" : "text-warn"}>▸</span>
-                  {v.message}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {hasChanges && scenario.violations.length === 0 && (
-          <div className="rounded-xl border border-accent/20 bg-accent/5 px-4 py-3 text-xs text-accent font-mono">
-            ✓ Cenário em conformidade com a política
-          </div>
-        )}
-      </div>
-      </div>{/* end grid */}
-    </div>
-  );
-}
-
-// ── Slider group sub-component ────────────────────────────────────────────────
-
-function SliderGroup({
-  title,
-  value,
-  max,
-  onChange,
-  accent,
-}: {
-  title: string;
-  value: number;
-  max: number;
-  onChange: (v: number) => void;
-  accent: string;
-}) {
-  const step = Math.max(100, Math.floor(max / 100) * 10);
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-fg-2">{title}</div>
-        <div className={`text-xs font-mono font-semibold ${accent}`}>
-          {value > 0 ? fmtUSD(value) : "—"}
+        {/* Right: Comparison columns */}
+        <div className="flex-1 overflow-x-auto flex">
+          <BaselineColumn
+            proj={baseline}
+            liquidUsd={snapshot.liquidUsd}
+            policyVersion={policyVersion}
+          />
+          <ScenarioColumn
+            id="a"
+            sublabel="CONSERVADOR"
+            proj={scenarioA}
+            baseline={baseline}
+            liquidUsd={aLiquidUsd}
+            baselineLiquidUsd={snapshot.liquidUsd}
+            isSelected={selected === "a"}
+            violations={scenarioA.violations}
+            onClick={() => setSelected("a")}
+          />
+          <ScenarioColumn
+            id="b"
+            sublabel="RECOMENDADO"
+            proj={scenarioB}
+            baseline={baseline}
+            liquidUsd={bLiquidUsd}
+            baselineLiquidUsd={snapshot.liquidUsd}
+            isSelected={selected === "b"}
+            isRecommended
+            violations={scenarioB.violations}
+            onClick={() => setSelected("b")}
+          />
         </div>
       </div>
-      <input
-        type="range"
-        min={0}
-        max={max}
-        step={step || 100}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-accent"
-        disabled={max <= 0}
-      />
-      <div className="flex justify-between text-xs text-fg-3 font-mono">
-        <span>$0</span>
-        <span>{fmtUSD(max)}</span>
+
+      {/* Bottom: before/after visualization */}
+      <div className="border-t border-line shrink-0">
+        <div className="px-5 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">⊙ Antes / Depois — runway protegido</span>
+            <span className="text-[9px] font-mono text-fg-3 uppercase">CENÁRIO {selected.toUpperCase()} APLICADO</span>
+          </div>
+          <div className="space-y-2.5">
+            <BeforeAfterBar
+              label="ANTES (ATUAL)"
+              positions={snapshot.positions}
+              liquidUsd={snapshot.liquidUsd}
+              totalUsd={snapshot.totalUsd}
+            />
+            <BeforeAfterBar
+              label={`DEPOIS (CENÁRIO ${selected.toUpperCase()})`}
+              positions={selected === "b" ? bPositions : aPositions}
+              liquidUsd={selected === "b" ? bLiquidUsd : aLiquidUsd}
+              totalUsd={snapshot.totalUsd}
+            />
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-line flex items-start gap-4">
+          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider shrink-0 mt-0.5">NARRATIVA DO AGENTE</span>
+          <p className="text-[11px] text-fg-2 leading-relaxed">{narrative}</p>
+        </div>
       </div>
     </div>
   );

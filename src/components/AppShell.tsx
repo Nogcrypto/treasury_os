@@ -7,24 +7,25 @@ import { useState } from "react";
 import nextDynamic from "next/dynamic";
 import { signOut } from "@/app/(auth)/login/actions";
 import { MarketTicker } from "./MarketTicker";
+import { WalletButton } from "./WalletButton";
+import { Tour } from "./Tour";
 
 const ProfilePanelDynamic = nextDynamic(
   () => import("./ProfilePanelWithProviders").then((m) => ({ default: m.ProfilePanelWithProviders })),
   { ssr: false }
 );
 
-const NAV_WORKSPACE = [
-  { href: "/dashboard",     label: "Dashboard",      icon: "⬡", badge: null,   badgeVariant: "" },
-  { href: "/policy",        label: "Policy Engine",  icon: "⚖", badge: null,   badgeVariant: "" },
-  { href: "/copilot",       label: "AI Copilot",     icon: "✦", badge: "3",    badgeVariant: "accent" },
-  { href: "/simulator",     label: "Simulador",      icon: "◈", badge: null,   badgeVariant: "" },
-  { href: "/execution",     label: "Execução",       icon: "▶", badge: null,   badgeVariant: "" },
-  { href: "/equity-studio", label: "Equity Studio",  icon: "◎", badge: "NOVO", badgeVariant: "accent" },
+const NAV_WORKSPACE_BASE = [
+  { href: "/dashboard",     label: "Dashboard",      icon: "⬡", badge: null as string | null, badgeVariant: "" },
+  { href: "/policy",        label: "Policy Engine",  icon: "⚖", badge: null as string | null, badgeVariant: "" },
+  { href: "/copilot",       label: "AI Copilot",     icon: "✦", badge: "3",                   badgeVariant: "accent" },
+  { href: "/simulator",     label: "Simulador",      icon: "◈", badge: null as string | null, badgeVariant: "" },
+  { href: "/execution",     label: "Execução",       icon: "▶", badge: null as string | null, badgeVariant: "" },
+  { href: "/equity-studio", label: "Equity Studio",  icon: "◎", badge: "NOVO",                badgeVariant: "accent" },
 ];
 
 const NAV_OPERACOES = [
-  { href: "/reports",   label: "Reporting",  icon: "↗", badge: null, badgeVariant: "" },
-  { href: "/dashboard", label: "Alertas",    icon: "⚠", badge: "2",  badgeVariant: "neg" },
+  { href: "/reports", label: "Reporting", icon: "↗", badge: null as string | null, badgeVariant: "" },
 ];
 
 function initials(name?: string, email?: string) {
@@ -74,6 +75,8 @@ export function AppShell({
   walletAddress,
   userName,
   simulatedMode,
+  alertCount,
+  showTourAutoStart,
 }: {
   children: React.ReactNode;
   email?: string;
@@ -82,11 +85,19 @@ export function AppShell({
   walletAddress?: string;
   userName?: string;
   simulatedMode?: boolean;
+  alertCount?: number;
+  showTourAutoStart?: boolean;
 }) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [simMode, setSimMode] = useState(simulatedMode ?? false);
+
+  const navWorkspace = NAV_WORKSPACE_BASE.map((item) =>
+    item.href === "/dashboard" && alertCount && alertCount > 0
+      ? { ...item, badge: String(alertCount), badgeVariant: "neg" }
+      : item
+  );
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
   const closeMobile = () => setMobileOpen(false);
@@ -125,7 +136,7 @@ export function AppShell({
         <div>
           <div className="px-4 mb-1 text-[9px] font-mono text-fg-3 uppercase tracking-widest">Workspace</div>
           <div className="space-y-0.5">
-            {NAV_WORKSPACE.map((item) => (
+            {navWorkspace.map((item) => (
               <NavLink key={item.href} {...item} active={isActive(item.href)} onClick={closeMobile} />
             ))}
           </div>
@@ -256,6 +267,9 @@ export function AppShell({
             </span>
           </label>
 
+          {/* Tour */}
+          <Tour autoStart={showTourAutoStart} />
+
           {/* Bell */}
           <button className="relative p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-bg-2 transition-colors">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -266,12 +280,9 @@ export function AppShell({
           </button>
 
           {/* Wallet connect */}
-          <button className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-bg-2 text-[10px] font-mono text-fg-2 hover:border-accent/40 hover:text-fg transition-colors">
-            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            {walletAddress
-              ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
-              : "Conectar Wallet"}
-          </button>
+          <div className="hidden md:block">
+            <WalletButton serverWalletAddress={walletAddress} />
+          </div>
         </div>
 
         {/* Market Ticker */}

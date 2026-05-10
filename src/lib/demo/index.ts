@@ -160,6 +160,97 @@ export function getDemoAlerts(): TreasuryAlert[] {
   ];
 }
 
+// ── Demo intents (Execução page) ──────────────────────────────────────────────
+
+export function getDemoIntents() {
+  const now = Date.now();
+  return [
+    {
+      id: "01HXC9F0000000000001",
+      kind: "deposit" as const,
+      status: "confirmed" as const,
+      paramsJson: { adapterId: "kamino-usdc-devnet", amountUsd: 250_000 },
+      idempotencyKey: "demo-deposit-kamino-250k",
+      createdAt: new Date(now - 3 * 86_400_000),
+      updatedAt: new Date(now - 3 * 86_400_000 + 45_000),
+      txSignature: "5xNpQ2WvK9mT8pLzR6QsYjKbVN3cXhF7aDE4uCwMtPy",
+      onchainAt: new Date(now - 3 * 86_400_000 + 45_000),
+    },
+    {
+      id: "01HXC8A0000000000002",
+      kind: "deposit" as const,
+      status: "confirmed" as const,
+      paramsJson: { adapterId: "mock-rwa-usdy", amountUsd: 70_000 },
+      idempotencyKey: "demo-deposit-rwa-70k",
+      createdAt: new Date(now - 5 * 86_400_000),
+      updatedAt: new Date(now - 5 * 86_400_000 + 60_000),
+      txSignature: "3kLmR7YcN4pXwQvH2sT5jFnDgBuZ8eAW6rCyMoKiPbV",
+      onchainAt: new Date(now - 5 * 86_400_000 + 60_000),
+    },
+    {
+      id: "01HW0K20000000000003",
+      kind: "withdraw" as const,
+      status: "confirmed" as const,
+      paramsJson: { adapterId: "kamino-usdc-devnet", amountUsd: 18_500 },
+      idempotencyKey: "demo-withdraw-kamino-18500",
+      createdAt: new Date(now - 12 * 86_400_000),
+      updatedAt: new Date(now - 12 * 86_400_000 + 30_000),
+      txSignature: "7pKwR5YsM3nXvQtH9sT2jGmDhCuZ6eAW4rCxNoKiPaV",
+      onchainAt: new Date(now - 12 * 86_400_000 + 30_000),
+    },
+    {
+      id: "01HV9Z10000000000004",
+      kind: "rebalance" as const,
+      status: "confirmed" as const,
+      paramsJson: { adapterId: "kamino-usdc-devnet", amountUsd: 12_000 },
+      idempotencyKey: "demo-rebalance-12k",
+      createdAt: new Date(now - 18 * 86_400_000),
+      updatedAt: new Date(now - 18 * 86_400_000 + 25_000),
+      txSignature: "9qMnT6ZcP4rYwRvI3sU8kHoEiBuX7fBW5sCyLpKjQdW",
+      onchainAt: new Date(now - 18 * 86_400_000 + 25_000),
+    },
+  ];
+}
+
+// ── Policy versions (audit log) ───────────────────────────────────────────────
+
+export function getDemoPolicyVersions(): Array<{
+  id: string;
+  version: number;
+  status: "draft" | "active" | "archived";
+  preset: string;
+  activatedAt: string;
+  authorLabel: string;
+}> {
+  const now = Date.now();
+  return [
+    {
+      id: "demo-policy-v3",
+      version: 3,
+      status: "active",
+      preset: "balanced",
+      activatedAt: new Date(now - 2 * 3600_000).toISOString(),
+      authorLabel: "Copilot · você aprovou",
+    },
+    {
+      id: "demo-policy-v2",
+      version: 2,
+      status: "archived",
+      preset: "conservative",
+      activatedAt: new Date(now - 13 * 86_400_000).toISOString(),
+      authorLabel: "Founder · manual edit",
+    },
+    {
+      id: "demo-policy-v1",
+      version: 1,
+      status: "archived",
+      preset: "conservative",
+      activatedAt: new Date(now - 25 * 86_400_000).toISOString(),
+      authorLabel: "Wizard · seed",
+    },
+  ];
+}
+
 // ── Convenience: tudo junto para o dashboard ──────────────────────────────────
 
 export function getDemoDashboardData() {

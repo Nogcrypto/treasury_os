@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
-import { memberships, snapshots } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { memberships, snapshots, policies } from "@/lib/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { isDemoUser } from "@/lib/demo";
 import { Copilot } from "@/components/Copilot";
 
 export const dynamic = "force-dynamic";
@@ -12,27 +13,41 @@ export default async function CopilotPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  if (isDemoUser(user.email)) {
+    return (
+      <Copilot
+        hasSnapshot
+        policyVersion={3}
+        snapshotCount={3}
+        orgName="Capivara Ventures"
+      />
+    );
+  }
+
   const membership = await db.query.memberships.findFirst({
     where: eq(memberships.userId, user.id),
+    with: { org: true },
   });
   if (!membership) redirect("/setup");
 
-  const latestSnapshot = await db.query.snapshots.findFirst({
-    where: eq(snapshots.orgId, membership.orgId),
-    orderBy: [desc(snapshots.takenAt)],
-  });
+  const [latestSnapshot, activePolicy] = await Promise.all([
+    db.query.snapshots.findFirst({
+      where: eq(snapshots.orgId, membership.orgId),
+      orderBy: [desc(snapshots.takenAt)],
+    }),
+    db.query.policies.findFirst({
+      where: and(eq(policies.orgId, membership.orgId), eq(policies.status, "active")),
+    }),
+  ]);
+
+  const snapshotCount = latestSnapshot ? 1 : 0;
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="px-6 py-4 border-b border-line shrink-0">
-        <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-0.5">
-          Tesouraria / Copilot
-        </div>
-        <h1 className="text-sm font-semibold text-fg">AI Copilot ✦</h1>
-      </div>
-      <div className="flex-1 min-h-0">
-        <Copilot hasSnapshot={!!latestSnapshot} />
-      </div>
-    </div>
+    <Copilot
+      hasSnapshot={!!latestSnapshot}
+      policyVersion={activePolicy?.version}
+      snapshotCount={snapshotCount}
+      orgName={membership.org.name}
+    />
   );
 }

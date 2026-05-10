@@ -91,4 +91,10 @@ export interface ScenarioAction {
   kind: "deposit" | "withdraw" | "rebalance";
   adapterId: string;
   amountUsd: number;
+  meta?: {
+    protocol?: string;
+    aprPct?: number;
+    riskTier?: RiskTier;
+    unlockDays?: number;
+  };
 }

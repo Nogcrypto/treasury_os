@@ -2,13 +2,103 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
-import { memberships, wallets, snapshots } from "@/lib/db/schema";
+import { memberships, wallets, snapshots, obligations } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { isDemoUser } from "@/lib/demo";
 import { fetchWalletBalances } from "@/lib/solana/indexer";
 import { kaminoAdapter } from "@/lib/adapters/kamino";
 import { mockRwaAdapter } from "@/lib/adapters/mock-rwa";
 import type { TreasurySnapshot } from "@/lib/rules-engine/types";
 import { revalidatePath } from "next/cache";
+
+// ── Obligations CRUD ─────────────────────────────────────────────────────────
+
+export type Recurrence = "once" | "monthly" | "quarterly" | "annual";
+
+export interface ObligationInput {
+  label: string;
+  amountUsd: number;
+  dueDate: string;
+  recurrence: Recurrence;
+}
+
+async function getOrgIdForMutation(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || isDemoUser(user.email)) return null;
+  const membership = await db.query.memberships.findFirst({
+    where: eq(memberships.userId, user.id),
+  });
+  return membership?.orgId ?? null;
+}
+
+export async function createObligation(
+  input: ObligationInput
+): Promise<{ ok: boolean; error?: string }> {
+  const orgId = await getOrgIdForMutation();
+  if (!orgId) return { ok: false, error: "Não autenticado." };
+  if (!input.label.trim()) return { ok: false, error: "Label obrigatório." };
+  if (input.amountUsd <= 0) return { ok: false, error: "Valor deve ser positivo." };
+
+  try {
+    await db.insert(obligations).values({
+      orgId,
+      label: input.label.trim(),
+      amountCents: Math.round(input.amountUsd * 100),
+      dueDate: new Date(input.dueDate),
+      recurrence: input.recurrence,
+    });
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Falha ao criar obrigação." };
+  }
+}
+
+export async function updateObligation(
+  id: string,
+  input: ObligationInput
+): Promise<{ ok: boolean; error?: string }> {
+  const orgId = await getOrgIdForMutation();
+  if (!orgId) return { ok: false, error: "Não autenticado." };
+  if (!input.label.trim()) return { ok: false, error: "Label obrigatório." };
+  if (input.amountUsd <= 0) return { ok: false, error: "Valor deve ser positivo." };
+
+  try {
+    await db
+      .update(obligations)
+      .set({
+        label: input.label.trim(),
+        amountCents: Math.round(input.amountUsd * 100),
+        dueDate: new Date(input.dueDate),
+        recurrence: input.recurrence,
+      })
+      .where(and(eq(obligations.id, id), eq(obligations.orgId, orgId)));
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Falha ao atualizar obrigação." };
+  }
+}
+
+export async function deleteObligation(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const orgId = await getOrgIdForMutation();
+  if (!orgId) return { ok: false, error: "Não autenticado." };
+
+  try {
+    await db
+      .delete(obligations)
+      .where(and(eq(obligations.id, id), eq(obligations.orgId, orgId)));
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Falha ao deletar obrigação." };
+  }
+}
+
+// ── Snapshot ──────────────────────────────────────────────────────────────────
 
 export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient();

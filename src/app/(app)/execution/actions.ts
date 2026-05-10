@@ -6,6 +6,7 @@ import { memberships, intents, executions, events } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { mockRwaAdapter } from "@/lib/adapters/mock-rwa";
+import { isDemoUser } from "@/lib/demo";
 
 async function getOrgId(): Promise<string | null> {
   const supabase = await createClient();
@@ -87,6 +88,36 @@ export async function executeSimulated(
 
   revalidatePath("/execution");
   revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+export async function createIntent(data: {
+  kind: string;
+  adapterId: string;
+  amountUsd: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "não autenticado" };
+
+  if (isDemoUser(user.email)) return { ok: true };
+
+  const membership = await db.query.memberships.findFirst({
+    where: eq(memberships.userId, user.id),
+  });
+  if (!membership) return { ok: false, error: "sem organização" };
+
+  const idempotencyKey = `${membership.orgId}-${data.kind}-${data.adapterId}-${Date.now()}`;
+
+  await db.insert(intents).values({
+    orgId: membership.orgId,
+    kind: data.kind as "deposit" | "withdraw" | "rebalance",
+    paramsJson: { adapterId: data.adapterId, amountUsd: data.amountUsd } as unknown as Record<string, unknown>,
+    status: "draft",
+    idempotencyKey,
+  });
+
+  revalidatePath("/execution");
   return { ok: true };
 }
 
