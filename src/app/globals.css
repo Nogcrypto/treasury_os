@@ -71,3 +71,15 @@ html, body {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 55s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}

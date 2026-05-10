@@ -14,11 +14,16 @@ function fmtUSD(n: number) {
   }).format(n);
 }
 
-const RISK_LABEL: Record<number, string> = { 1: "baixo", 2: "médio", 3: "alto" };
+const RISK_LABEL: Record<number, string> = { 1: "T1", 2: "T2", 3: "T3" };
 const RISK_CLASS: Record<number, string> = {
-  1: "text-accent",
-  2: "text-warn",
-  3: "text-neg",
+  1: "text-accent bg-accent/10 border-accent/20",
+  2: "text-warn bg-warn/10 border-warn/20",
+  3: "text-neg bg-neg/10 border-neg/20",
+};
+
+const STRATEGY_LABEL: Record<string, string> = {
+  "kamino-usdc-devnet": "Lending",
+  "mock-rwa-usdy": "T-Bills",
 };
 
 export function PositionsTable({ positions }: PositionsTableProps) {
@@ -35,12 +40,21 @@ export function PositionsTable({ positions }: PositionsTableProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-line">
-            {["Protocolo", "Ativo", "Valor", "APR", "Yield acum.", "Risco", "Unlock"].map((h, i) => (
+            {[
+              { label: "Protocolo",  align: "left" },
+              { label: "Estratégia", align: "left" },
+              { label: "Ativo",      align: "left" },
+              { label: "Valor",      align: "right" },
+              { label: "APR",        align: "right" },
+              { label: "Yield acum.", align: "right" },
+              { label: "Risco",      align: "right" },
+              { label: "Dias",       align: "right" },
+            ].map((h) => (
               <th
-                key={h}
-                className={`px-4 py-2 text-xs font-mono text-fg-3 uppercase tracking-wider ${i < 2 ? "text-left" : "text-right"}`}
+                key={h.label}
+                className={`px-4 py-2 text-[10px] font-mono text-fg-3 uppercase tracking-wider ${h.align === "right" ? "text-right" : "text-left"}`}
               >
-                {h}
+                {h.label}
               </th>
             ))}
           </tr>
@@ -49,17 +63,24 @@ export function PositionsTable({ positions }: PositionsTableProps) {
           {positions.map((p) => (
             <tr key={p.adapterId} className="hover:bg-bg-2 transition-colors">
               <td className="px-4 py-3 text-fg font-medium">{p.protocol}</td>
-              <td className="px-4 py-3 font-mono text-fg-2">{p.asset}</td>
+              <td className="px-4 py-3">
+                <span className="text-xs font-mono text-fg-2 bg-bg-2 px-2 py-0.5 rounded border border-line">
+                  {STRATEGY_LABEL[p.adapterId] ?? "Outro"}
+                </span>
+              </td>
+              <td className="px-4 py-3 font-mono text-fg-2 text-xs">{p.asset}</td>
               <td className="px-4 py-3 text-right font-mono text-fg">{fmtUSD(p.amountUsd)}</td>
-              <td className="px-4 py-3 text-right font-mono text-accent">{p.aprPct.toFixed(2)}%</td>
-              <td className="px-4 py-3 text-right font-mono text-fg-2">
+              <td className="px-4 py-3 text-right font-mono text-accent text-xs">{p.aprPct.toFixed(2)}%</td>
+              <td className="px-4 py-3 text-right font-mono text-fg-2 text-xs">
                 {p.accruedYieldUsd > 0 ? fmtUSD(p.accruedYieldUsd) : "—"}
               </td>
-              <td className={`px-4 py-3 text-right font-mono text-xs ${RISK_CLASS[p.riskTier] ?? "text-fg-3"}`}>
-                {RISK_LABEL[p.riskTier] ?? p.riskTier}
+              <td className="px-4 py-3 text-right">
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${RISK_CLASS[p.riskTier] ?? "text-fg-3"}`}>
+                  {RISK_LABEL[p.riskTier] ?? `T${p.riskTier}`}
+                </span>
               </td>
               <td className="px-4 py-3 text-right font-mono text-fg-3 text-xs">
-                {p.unlockDays === 0 ? "imediato" : `${p.unlockDays}d`}
+                {p.unlockDays === 0 ? "0d" : `${p.unlockDays}d`}
               </td>
             </tr>
           ))}
