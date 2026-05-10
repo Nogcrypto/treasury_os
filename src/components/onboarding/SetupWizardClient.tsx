@@ -6,7 +6,7 @@ import nextDynamic from "next/dynamic";
 // which does require(uuid) but uuid v9+ is ESM-only → ERR_REQUIRE_ESM.
 // Must live in a Client Component — ssr:false is not allowed in Server Components.
 const SetupWizardDynamic = nextDynamic(
-  () => import("./SetupWizard").then((m) => ({ default: m.SetupWizard })),
+  () => import("./SetupWizardWithProviders").then((m) => ({ default: m.SetupWizardWithProviders })),
   {
     ssr: false,
     loading: () => (
