@@ -165,6 +165,37 @@ export const auditLog = pgTable("audit_log", {
   at:       timestamp("at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("audit_org_idx").on(t.orgId)]);
 
+export const equityTokens = pgTable("equity_tokens", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  orgId:               uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  mint:                text("mint").notNull(),
+  symbol:              text("symbol").notNull(),
+  name:                text("name").notNull(),
+  decimals:            integer("decimals").notNull().default(6),
+  totalSupply:         bigint("total_supply", { mode: "number" }),
+  priceUsdcE6:         bigint("price_usdc_e6", { mode: "number" }),   // price × 1_000_000
+  poolAddress:         text("pool_address"),
+  poolAprBps:          integer("pool_apr_bps"),                        // APR in basis points
+  totalDividendsCents: bigint("total_dividends_cents", { mode: "number" }).notNull().default(0),
+  createdAt:           timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("equity_tokens_org_idx").on(t.orgId),
+  unique().on(t.orgId),
+]);
+
+export const equityDividends = pgTable("equity_dividends", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  orgId:           uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  tokenMint:       text("token_mint").notNull(),
+  amountCents:     bigint("amount_cents", { mode: "number" }).notNull(),
+  perTokenUsdc:    text("per_token_usdc"),
+  recipientsCount: integer("recipients_count"),
+  txSignature:     text("tx_signature"),
+  status:          text("status").notNull().default("pending"),
+  distributedAt:   timestamp("distributed_at", { withTimezone: true }),
+  createdAt:       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("equity_dividends_org_idx").on(t.orgId)]);
+
 export const mockPositions = pgTable("mock_positions", {
   id:             uuid("id").primaryKey().defaultRandom(),
   orgId:          uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
@@ -186,7 +217,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(memberships),
 }));
 
-export const organizationsRelations = relations(organizations, ({ many }) => ({
+export const organizationsRelations = relations(organizations, ({ many, one }) => ({
   memberships: many(memberships),
   wallets: many(wallets),
   policies: many(policies),
@@ -197,6 +228,17 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   intents: many(intents),
   events: many(events),
   auditLog: many(auditLog),
+  equityToken: one(equityTokens, { fields: [organizations.id], references: [equityTokens.orgId] }),
+  equityDividends: many(equityDividends),
+}));
+
+export const equityTokensRelations = relations(equityTokens, ({ one, many }) => ({
+  org: one(organizations, { fields: [equityTokens.orgId], references: [organizations.id] }),
+  dividends: many(equityDividends),
+}));
+
+export const equityDividendsRelations = relations(equityDividends, ({ one }) => ({
+  org: one(organizations, { fields: [equityDividends.orgId], references: [organizations.id] }),
 }));
 
 export const intentsRelations = relations(intents, ({ one, many }) => ({

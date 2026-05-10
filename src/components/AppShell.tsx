@@ -18,12 +18,13 @@ const NAV_WORKSPACE = [
   { href: "/policy",        label: "Policy Engine",  icon: "⚖", badge: null,   badgeVariant: "" },
   { href: "/copilot",       label: "AI Copilot",     icon: "✦", badge: "3",    badgeVariant: "accent" },
   { href: "/simulator",     label: "Simulador",      icon: "◈", badge: null,   badgeVariant: "" },
+  { href: "/execution",     label: "Execução",       icon: "▶", badge: null,   badgeVariant: "" },
   { href: "/equity-studio", label: "Equity Studio",  icon: "◎", badge: "NOVO", badgeVariant: "accent" },
 ];
 
 const NAV_OPERACOES = [
-  { href: "/execution", label: "Execução",   icon: "▶", badge: null, badgeVariant: "" },
-  { href: "/reports",   label: "Relatórios", icon: "↗", badge: null, badgeVariant: "" },
+  { href: "/reports",   label: "Reporting",  icon: "↗", badge: null, badgeVariant: "" },
+  { href: "/dashboard", label: "Alertas",    icon: "⚠", badge: "2",  badgeVariant: "neg" },
 ];
 
 function initials(name?: string, email?: string) {
@@ -42,6 +43,8 @@ function NavLink({
 }) {
   const badgeClass = badgeVariant === "accent"
     ? "bg-accent/15 text-accent border-accent/25"
+    : badgeVariant === "neg"
+    ? "bg-neg/15 text-neg border-neg/25"
     : "bg-bg-3 text-fg-3 border-line";
 
   return (
