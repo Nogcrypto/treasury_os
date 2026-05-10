@@ -4,7 +4,7 @@ import { db } from "@/lib/db/client";
 import { wallets } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import nacl from "tweetnacl";
-import { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
 
 // Server-side: verify a SIWS signature and link the wallet to the org.
 export async function verifySiwsAndLinkWallet(params: {
@@ -20,7 +20,7 @@ export async function verifySiwsAndLinkWallet(params: {
   try {
     const messageBytes = new TextEncoder().encode(message);
     const sigBytes = Buffer.from(signature, "base64");
-    const pubkeyBytes = new PublicKey(address).toBytes();
+    const pubkeyBytes = bs58.decode(address);
 
     const valid = nacl.sign.detached.verify(messageBytes, sigBytes, pubkeyBytes);
     if (!valid) return { ok: false, error: "Assinatura inválida." };
