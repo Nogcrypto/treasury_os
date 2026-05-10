@@ -13,8 +13,6 @@ import {
 import { eq, and } from "drizzle-orm";
 import { POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import { verifySiwsAndLinkWallet } from "@/lib/solana/siws";
-import nacl from "tweetnacl";
-import { PublicKey } from "@solana/web3.js";
 
 const DEFAULT_BUCKETS: {
   kind: typeof buckets.$inferInsert["kind"];

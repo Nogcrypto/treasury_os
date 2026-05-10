@@ -20,29 +20,31 @@ const STEP_LABELS = ["Organização", "Wallet", "Política", "Buckets"];
 
 function StepDots({ current }: { current: number }) {
   return (
-    <div className="flex items-center gap-2 mb-8">
+    <div className="flex items-start mb-8">
       {STEP_LABELS.map((label, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <div
-            className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-mono font-semibold transition-all ${
-              i < current
-                ? "bg-accent text-bg-0"
-                : i === current
-                ? "border-2 border-accent text-accent"
-                : "border border-line text-fg-3"
-            }`}
-          >
-            {i < current ? "✓" : i + 1}
+        <div key={i} className={`flex items-start ${i < STEP_LABELS.length - 1 ? "flex-1" : ""}`}>
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div
+              className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-mono font-semibold transition-all ${
+                i < current
+                  ? "bg-accent text-bg-0"
+                  : i === current
+                  ? "border-2 border-accent text-accent"
+                  : "border border-line text-fg-3"
+              }`}
+            >
+              {i < current ? "✓" : i + 1}
+            </div>
+            <span
+              className={`text-xs font-mono text-center leading-tight transition-colors ${
+                i === current ? "text-fg" : i < current ? "text-fg-3" : "text-fg-3/40"
+              }`}
+            >
+              {label}
+            </span>
           </div>
-          <span
-            className={`text-xs font-mono transition-colors ${
-              i === current ? "text-fg" : "text-fg-3"
-            }`}
-          >
-            {label}
-          </span>
           {i < STEP_LABELS.length - 1 && (
-            <div className={`h-px w-8 ${i < current ? "bg-accent" : "bg-line"}`} />
+            <div className={`flex-1 h-px mt-3 mx-1.5 ${i < current ? "bg-accent" : "bg-line"}`} />
           )}
         </div>
       ))}
