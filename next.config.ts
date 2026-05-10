@@ -7,7 +7,12 @@ const nextConfig: NextConfig = {
     "@kamino-finance/kliquidity-sdk",
     "@kamino-finance/scope-sdk",
     "@solana/web3.js",
+    "@solana/wallet-adapter-base",
+    "@solana/wallet-adapter-phantom",
+    "@solana/wallet-adapter-react",
+    "@solana/wallet-adapter-react-ui",
     "@coral-xyz/anchor",
+    "rpc-websockets",
   ],
 };
 
