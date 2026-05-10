@@ -1,7 +1,7 @@
 import { sendMagicLink } from "./actions";
 
 interface Props {
-  searchParams: Promise<{ sent?: string; email?: string; error?: string }>;
+  searchParams: Promise<{ sent?: string; email?: string; error?: string; reason?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: Props) {
@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: Props) {
           {params.sent ? (
             <SentState email={params.email ?? ""} />
           ) : (
-            <LoginForm error={params.error} />
+            <LoginForm error={params.error} reason={params.reason} />
           )}
         </div>
 
@@ -41,7 +41,7 @@ export default async function LoginPage({ searchParams }: Props) {
   );
 }
 
-function LoginForm({ error }: { error?: string }) {
+function LoginForm({ error, reason }: { error?: string; reason?: string }) {
   return (
     <>
       <h1 className="text-white font-semibold text-lg mb-1">Entrar</h1>
@@ -50,12 +50,17 @@ function LoginForm({ error }: { error?: string }) {
       </p>
 
       {error && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-[oklch(0.35_0.18_25)/20] border border-[oklch(0.55_0.18_25)/30] text-[oklch(0.75_0.18_25)] text-sm">
-          {error === "auth_callback_failed"
-            ? "Link expirado ou inválido. Tente novamente."
-            : error === "send_failed"
-            ? "Erro ao enviar o link. Tente novamente."
-            : "Email inválido."}
+        <div className="mb-4 px-3 py-2 rounded-lg bg-[oklch(0.35_0.18_25)/20] border border-[oklch(0.55_0.18_25)/30] text-[oklch(0.75_0.18_25)] text-sm space-y-0.5">
+          <div>
+            {error === "auth_callback_failed"
+              ? "Link expirado ou inválido. Tente novamente."
+              : error === "send_failed"
+              ? "Erro ao enviar o link. Tente novamente."
+              : "Email inválido."}
+          </div>
+          {reason && (
+            <div className="text-xs opacity-70 font-mono break-all">{reason}</div>
+          )}
         </div>
       )}
 

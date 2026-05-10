@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { z } from "zod";
 
 const EmailSchema = z.string().email();
@@ -14,17 +15,25 @@ export async function sendMagicLink(formData: FormData): Promise<void> {
     redirect("/login?error=invalid_email");
   }
 
+  // Derive redirect URL from the actual request host so we never depend
+  // on NEXT_PUBLIC_APP_URL being set correctly in each environment.
+  const headersList = await headers();
+  const host = headersList.get("host") ?? "treasury-os-black.vercel.app";
+  const proto = host.startsWith("localhost") ? "http" : "https";
+  const emailRedirectTo = `${proto}://${host}/auth/callback`;
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      emailRedirectTo,
       shouldCreateUser: true,
     },
   });
 
   if (error) {
-    redirect("/login?error=send_failed");
+    console.error("signInWithOtp error:", error.message, "| redirectTo:", emailRedirectTo);
+    redirect(`/login?error=send_failed&reason=${encodeURIComponent(error.message)}`);
   }
 
   redirect(`/login?sent=1&email=${encodeURIComponent(parsed.data)}`);
