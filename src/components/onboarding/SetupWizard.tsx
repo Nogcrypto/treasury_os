@@ -1,18 +1,26 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   SolanaProvider,
   SolanaContextProvider,
   useSolana,
 } from "@/lib/solana/wallet";
-import {
-  createOrg,
-  linkWallet,
-  setOrgPreset,
-  updateBucketTargets,
-} from "@/app/(onboarding)/setup/actions";
+
+// ── API helper ────────────────────────────────────────────────────────────────
+
+async function callSetup(
+  action: string,
+  data: Record<string, unknown>
+): Promise<{ ok: boolean; orgId?: string; error?: string }> {
+  const res = await fetch("/api/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...data }),
+  });
+  return res.json();
+}
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
@@ -60,7 +68,7 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
   const [burnUsd, setBurnUsd] = useState("");
   const [simulated, setSimulated] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
 
   const PROFILES = [
     { value: "startup", label: "Startup" },
@@ -68,19 +76,24 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
     { value: "fund", label: "Fundo" },
   ] as const;
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!name.trim()) return setError("Nome é obrigatório.");
     setError(null);
-    startTransition(async () => {
-      const result = await createOrg({
+    setIsPending(true);
+    try {
+      const result = await callSetup("createOrg", {
         name: name.trim(),
         profile,
         monthlyBurnUsd: Number(burnUsd) || 0,
         simulatedMode: simulated,
       });
-      if (!result.ok) return setError(result.error ?? "Erro ao criar org.");
-      onComplete(result.orgId!);
-    });
+      if (!result.ok) setError(result.error ?? "Erro ao criar org.");
+      else onComplete(result.orgId!);
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (
@@ -181,7 +194,7 @@ function StepWalletInner({
   const { publicKey, connected, connecting, connect, signInWithSolana } = useSolana();
   const [status, setStatus] = useState<"idle" | "signing" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
 
   async function handleSign() {
     if (!connected) return;
@@ -196,8 +209,9 @@ function StepWalletInner({
       return;
     }
 
-    startTransition(async () => {
-      const res = await linkWallet({
+    setIsPending(true);
+    try {
+      const res = await callSetup("linkWallet", {
         address: result.address,
         signature: result.signature,
         message: result.message,
@@ -210,7 +224,12 @@ function StepWalletInner({
         setStatus("done");
         setTimeout(onComplete, 600);
       }
-    });
+    } catch {
+      setStatus("error");
+      setError("Erro de conexão.");
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (
@@ -303,15 +322,20 @@ function StepPolicy({
 }) {
   const [selected, setSelected] = useState<"conservative" | "balanced" | "aggressive">("balanced");
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
 
-  function handleSubmit() {
+  async function handleSubmit() {
     setError(null);
-    startTransition(async () => {
-      const result = await setOrgPreset(orgId, selected);
-      if (!result.ok) return setError(result.error ?? "Erro ao definir política.");
-      onComplete();
-    });
+    setIsPending(true);
+    try {
+      const result = await callSetup("setOrgPreset", { orgId, preset: selected });
+      if (!result.ok) setError(result.error ?? "Erro ao definir política.");
+      else onComplete();
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (
@@ -374,19 +398,24 @@ function StepBuckets({ orgId }: { orgId: string }) {
     Object.fromEntries(BUCKET_KINDS.map((b) => [b.kind, ""]))
   );
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
 
-  function handleFinish() {
+  async function handleFinish() {
     setError(null);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const targets = BUCKET_KINDS.map((b) => ({
         kind: b.kind,
         amountCents: Math.round((Number(amounts[b.kind]) || 0) * 100),
       }));
-      const result = await updateBucketTargets(orgId, targets);
-      if (!result.ok) return setError(result.error ?? "Erro ao salvar.");
-      router.push("/dashboard");
-    });
+      const result = await callSetup("updateBucketTargets", { orgId, targets });
+      if (!result.ok) setError(result.error ?? "Erro ao salvar.");
+      else router.push("/dashboard");
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (
