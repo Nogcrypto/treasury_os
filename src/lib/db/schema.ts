@@ -44,6 +44,9 @@ export const organizations = pgTable("organizations", {
 export const users = pgTable("users", {
   id:        uuid("id").primaryKey(),   // mirrors Supabase auth.users.id
   email:     text("email").notNull(),
+  fullName:  text("full_name"),
+  phone:     text("phone"),
+  country:   text("country"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

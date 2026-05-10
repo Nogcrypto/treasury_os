@@ -7,7 +7,6 @@ import { eq, and } from "drizzle-orm";
 import { fetchWalletBalances } from "@/lib/solana/indexer";
 import { kaminoAdapter } from "@/lib/adapters/kamino";
 import { mockRwaAdapter } from "@/lib/adapters/mock-rwa";
-import { PublicKey } from "@solana/web3.js";
 import type { TreasurySnapshot } from "@/lib/rules-engine/types";
 import { revalidatePath } from "next/cache";
 
@@ -31,6 +30,7 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
   try {
     const balances = await fetchWalletBalances(wallet.address);
 
+    const { PublicKey } = await import("@solana/web3.js");
     const pubkey = new PublicKey(wallet.address);
     const [kaminoPos, mockRwaPos] = await Promise.allSettled([
       kaminoAdapter.readPosition(pubkey),

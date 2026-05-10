@@ -32,10 +32,24 @@ export async function POST(req: NextRequest) {
         simulatedMode: boolean;
       };
 
+      const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
       await db
         .insert(users)
-        .values({ id: user.id, email: user.email ?? "" })
-        .onConflictDoNothing();
+        .values({
+          id: user.id,
+          email: user.email ?? "",
+          fullName: (meta.full_name as string) || null,
+          phone: (meta.phone as string) || null,
+          country: (meta.country as string) || null,
+        })
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            fullName: (meta.full_name as string) || null,
+            phone: (meta.phone as string) || null,
+            country: (meta.country as string) || null,
+          },
+        });
 
       const [org] = await db
         .insert(organizations)

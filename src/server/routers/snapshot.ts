@@ -12,7 +12,6 @@ import { POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import { policies, buckets, obligations } from "@/lib/db/schema";
 import { and } from "drizzle-orm";
 import type { TreasurySnapshot } from "@/lib/rules-engine/types";
-import { PublicKey } from "@solana/web3.js";
 import { getDemoSnapshot, getDemoProjection } from "@/lib/demo";
 
 export const snapshotRouter = router({
@@ -125,6 +124,7 @@ export const snapshotRouter = router({
     const balances = await fetchWalletBalances(wallet.address);
 
     // Read adapter positions (best-effort — fail gracefully on devnet issues)
+    const { PublicKey } = await import("@solana/web3.js");
     const pubkey = new PublicKey(wallet.address);
     const [kaminoPos, mockRwaPos] = await Promise.allSettled([
       kaminoAdapter.readPosition(pubkey),
