@@ -109,7 +109,7 @@ export async function runCopilotTurn(
   return { reply: "Erro interno no copilot.", toolCalls };
 }
 
-// Streaming version for real-time chat UI
+// Streaming version for real-time chat UI — handles tool-use loops correctly.
 export async function* streamCopilotTurn(
   ctx: CopilotContext,
   history: CopilotMessage[],
@@ -121,18 +121,46 @@ export async function* streamCopilotTurn(
     { role: "user", content: userMessage },
   ];
 
-  const stream = anthropic.messages.stream({
-    model: SONNET,
-    max_tokens: 2048,
-    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-    tools: COPILOT_TOOLS,
-    messages,
-  });
+  // Loop so that tool-use turns are executed and streaming continues afterwards.
+  while (true) {
+    const stream = anthropic.messages.stream({
+      model: SONNET,
+      max_tokens: 2048,
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+      tools: COPILOT_TOOLS,
+      messages,
+    });
 
-  for await (const event of stream) {
-    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-      yield event.delta.text;
+    // Stream text deltas in real-time.
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield event.delta.text;
+      }
     }
+
+    const final = await stream.finalMessage();
+
+    // If Claude stopped for a reason other than tool_use, we're done.
+    if (final.stop_reason !== "tool_use") break;
+
+    // Execute every tool Claude called, collect results.
+    const toolUseBlocks = final.content.filter(
+      (b) => b.type === "tool_use"
+    ) as Anthropic.ToolUseBlock[];
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const toolUse of toolUseBlocks) {
+      const result = await executeToolCall(toolUse.name, toolUse.input, ctx);
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: JSON.stringify(result),
+      });
+    }
+
+    // Append the assistant turn + tool results, then loop for the next stream.
+    messages.push({ role: "assistant", content: final.content });
+    messages.push({ role: "user", content: toolResults });
   }
 }
 

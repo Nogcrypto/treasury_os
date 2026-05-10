@@ -99,11 +99,14 @@ ${description}`;
       messages: [{ role: "user", content: prompt }],
     });
 
-    const text = response.content
+    const raw = response.content
       .filter((b) => b.type === "text")
       .map((b) => (b as Anthropic.TextBlock).text)
       .join("")
       .trim();
+
+    // Strip markdown code fences if Claude wrapped the JSON despite instructions.
+    const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 
     const parsed = JSON.parse(text) as { preset: string; rules: PolicyRule[] };
     return { ok: true, rules: parsed.rules, preset: parsed.preset };
