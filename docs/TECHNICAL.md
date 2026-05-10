@@ -12,25 +12,28 @@
 
 **ICP:** Startup Seed-B (~$1–5M em caixa), sem treasurer, que precisa reportar processo para investidores e manter compliance com a política da rodada.
 
+**Demo account:** `dev@capivara.xyz` (senha `Senha@123`) — dados mockados de $847k de tesouraria, sem necessidade de wallet ou saldo devnet.
+
 ---
 
 ## 2. Stack Tecnológica
 
-| Camada | Tecnologia | Versão |
+| Camada | Tecnologia | Detalhe |
 |---|---|---|
-| Framework | Next.js App Router (Turbopack) | 16.2 |
-| API interna | tRPC | v11 |
-| Mutations server | Next.js Server Actions | — |
-| ORM | Drizzle ORM + PostgreSQL | — |
-| Banco de dados | Supabase Postgres | — |
-| Auth | Supabase Auth (magic link) + SIWS ed25519 | — |
-| Blockchain | Solana devnet · @solana/web3.js · wallet-adapter · Phantom | — |
-| Indexer | Helius RPC + Enhanced Webhooks | — |
-| DeFi | Kamino Lending SDK (devnet) · Mock RWA adapter | — |
-| IA | Anthropic Claude Sonnet 4.6 — streaming + tool use | — |
-| Estilo | Tailwind v4 — design tokens oklch, `@theme inline` | — |
-| Export | jsPDF (dynamic import, client-side only) | — |
-| Deploy | Vercel (gru1 — São Paulo) + Supabase Edge Functions (Deno) | — |
+| Framework | Next.js App Router (Turbopack) | v16.2 |
+| API interna | tRPC v11 | context enriquecido com `isDemoUser` |
+| Mutations server | Next.js Server Actions | wizard, snapshot, policy, reports |
+| ORM | Drizzle ORM + PostgreSQL | 13 tabelas |
+| Banco de dados | Supabase Postgres | RLS por org_id |
+| Auth | Supabase Auth (email/password + magic link) + SIWS ed25519 | tweetnacl + bs58 |
+| Blockchain | Solana devnet · @solana/web3.js · direct Phantom API | sem wallet-adapter-react |
+| Indexer | Helius RPC + Enhanced Webhooks | fallback automático para devnet público |
+| DeFi | Kamino Lending SDK (devnet) · Mock RWA adapter | serverExternalPackages |
+| IA | Anthropic Claude Sonnet 4.6 — streaming + tool-use loop | Opus 4.7 para draft_policy |
+| Estilo | Tailwind v4 — design tokens oklch | responsivo, hamburger mobile |
+| Export | jsPDF (dynamic import, client-side only) | |
+| Deploy | Vercel (gru1 — São Paulo) + Supabase Edge Functions (Deno) | |
+| Patch | patch-package — `rpc-websockets/uuid` ESM fix | postinstall automático |
 
 ---
 
@@ -44,46 +47,49 @@ Browser (React)
   │
   ├── Client Components
   │     ├── tRPC (mutations com optimistic UI)
-  │     ├── Server Actions (forms, wizard steps)
-  │     └── fetch /api/copilot (streaming SSE)
+  │     ├── Server Actions (forms, wizard steps, policy save)
+  │     └── fetch /api/copilot (streaming SSE com tool-use loop)
   │
   └── Route Handlers
         ├── /api/trpc/[trpc]       — tRPC handler
-        ├── /api/copilot           — streaming Anthropic
+        ├── /api/copilot           — streaming Anthropic (tool-use loop)
+        ├── /api/setup             — criação de org, link de wallet, config de política
         └── /api/webhooks/helius   — intake eventos onchain
 
 Next.js Server
-  └── Drizzle ORM → Supabase Postgres (connection pooler Supabase)
+  └── Drizzle ORM → Supabase Postgres (connection pooler)
 
 Supabase
   ├── Postgres (RLS ativo por org_id)
-  ├── Auth (magic link → callback → session cookie)
+  ├── Auth (email/password + magic link → callback → session cookie)
   └── Edge Function: snapshot-cron (Deno, pg_cron 5 min)
 
 Solana devnet
   ├── Helius RPC (getBalance + getTokenAccountsByOwner)
   ├── Helius Webhook (enhanced → /api/webhooks/helius)
   ├── Kamino Lending (deposit/withdraw USDC devnet)
-  └── Mock RWA (simula Ondo, APR 4.82%, redeem +1d)
+  └── Mock RWA (simula Ondo USDY, APR 4.82%, redeem +1d)
 ```
 
 **Route groups:**
 - `(app)` — dashboard, policy, copilot, simulator, execution, reports (auth guard via middleware)
-- `(auth)` — login, magic link callback
+- `(auth)` — login, register, forgot-password, magic link callback
 - `(onboarding)` — wizard setup 4 steps
 
-**Decisão de bundling:** Kamino SDK usa imports profundos (`@kamino-finance/farms-sdk/dist/@codegen/...`) incompatíveis com Turbopack. Solução: `serverExternalPackages` no `next.config.ts` — o Node.js resolve nativamente em runtime sem bundlar.
+**Decisão de bundling:** Kamino SDK usa imports profundos incompatíveis com Turbopack. Solução: `serverExternalPackages` no `next.config.ts` — Node.js resolve nativamente em runtime.
+
+**ESM fix:** `rpc-websockets` usa `require('uuid')` mas uuid v9+ é ESM puro. Fix via `patch-package`: substitui o require por `crypto.randomBytes` inline. Aplicado em `postinstall` para funcionar no Vercel.
 
 ---
 
-## 4. Banco de Dados — 12 Tabelas
+## 4. Banco de Dados — 13 Tabelas
 
 ```
-organizations       — org com perfil, moeda base, burn mensal
-users               — espelho do auth.users do Supabase
+organizations       — org com perfil (startup/DAO/fund), moeda base, burn mensal
+users               — espelho do auth.users + full_name, phone, country
 memberships         — org × user × role (owner/admin/viewer)
 wallets             — endereços Solana vinculados à org
-snapshots           — fotografia do caixa em um instante (totals + positions JSON)
+snapshots           — fotografia do caixa em instante (totals + positions JSON)
 policies            — versionadas, status draft/active/archived, regras em JSONB
 buckets             — categorias de caixa (operating/payroll/tax/emergency/yield)
 obligations         — despesas fixas com vencimento e recorrência
@@ -94,37 +100,36 @@ audit_log           — log de ações humanas com diff JSON
 mock_positions      — posições simuladas no Mock RWA adapter
 ```
 
-**RLS:** todas as tabelas têm Row Level Security por `org_id`. Um trigger `auth.users → public.users` sincroniza o cadastro.
+**RLS:** todas as tabelas têm Row Level Security por `org_id`. Trigger `auth.users → public.users` sincroniza o cadastro. `users` inclui `full_name`, `phone`, `country` coletados no registro e upserteados via Server Action.
 
 ---
 
 ## 5. Rules Engine
 
-Módulo puro TypeScript em `src/lib/rules-engine/` — zero I/O, zero dependências de servidor. Pode ser executado tanto no servidor quanto no cliente (Simulador usa client-side).
+Módulo puro TypeScript em `src/lib/rules-engine/` — zero I/O, zero dependências de servidor. Executado tanto no servidor (dashboard, alertas) quanto no cliente (Simulador via `useMemo`, sem round-trip).
 
 ### Funções principais
 
 **`projectRunway(snapshot, policy) → ProjectionResult`**
-Calcula a partir de um snapshot:
-- `liquidRunwayMonths` — meses de caixa líquido
+- `liquidRunwayMonths` — meses de caixa líquido com base no burn mensal da org
 - `deployedCapitalUsd` / `deployedPct` — capital alocado em protocolos
-- `blendedAprPct` — APR médio ponderado das posições
+- `blendedAprPct` — APR médio ponderado das posições ativas
 - `estimatedYieldYearUsd` — yield anual estimado
-- `complianceScore` — 0–100 baseado em violações de política
-- `violations[]` — lista de regras quebradas com severidade (warn/block)
+- `complianceScore` — 0–100 baseado em violações de política (penalidades por severidade)
+- `violations[]` — regras quebradas com severidade `warn` ou `block`
 
 **`projectScenario(snapshot, policy, deltas) → ProjectionResult`**
-Mesma lógica aplicada sobre um snapshot hipotético modificado pelos `deltas` (depósitos/saques simulados). Usado no Simulador em tempo real via `useMemo`.
+Aplica a mesma lógica sobre snapshot hipotético modificado pelos `deltas` (depósitos/saques). Usado no Simulador em tempo real.
 
 **`computeAlerts(snapshot, policy) → TreasuryAlert[]`**
-Gera alertas in-app de 4 tipos:
+Gera alertas de 4 tipos:
 - `runway` — runway líquido abaixo da meta mínima
 - `concentration` — % em único protocolo acima do limite
 - `policy` — outras violações de regra
 - `obligation` — obrigação com vencimento em ≤ 7 dias
 
-**`validateAction(intent, snapshot, policy) → ValidationResult`**
-Valida um intent de depósito/saque contra a política antes de executar.
+**`validateActions(intents, snapshot, policy) → ValidationResult`**
+Valida intenções de depósito/saque contra a política antes de executar.
 
 ### Presets de política
 
@@ -139,88 +144,136 @@ Valida um intent de depósito/saque contra a política antes de executar.
 ## 6. Funcionalidades — 9 Módulos
 
 ### 6.1 Auth
-Magic link via Supabase Auth → `/auth/callback` troca code por session cookie → middleware Next.js protege todas as rotas `(app)`.
+
+Duas formas de login:
+- **Email/senha** — registro com nome completo, telefone, país; validação server-side via Supabase Auth
+- **Magic link** — link enviado por email, troca code por session cookie em `/auth/callback`
+
+Middleware Next.js protege todas as rotas `(app)`. Recuperação de senha via `resetPasswordForEmail`.
 
 ### 6.2 Onboarding Wizard (4 steps)
-1. **Org** — nome + perfil (startup/DAO/fund) + burn mensal
-2. **Wallet** — conectar Phantom → SIWS (Sign In With Solana): nonce → sign → verificar ed25519 server-side (tweetnacl) → upsert wallet
-3. **Política** — escolher preset (conservative/balanced/aggressive) → cria política v1
-4. **Buckets** — definir targets de alocação por categoria → seed automático
+
+`/setup` — Server Component + Client Components; cada step submete via Server Action (`/api/setup`):
+
+1. **Org** — nome + perfil (startup/DAO/fund) + burn mensal → cria `organizations` + `memberships` + `buckets` padrão + policy v1 `balanced`
+2. **Wallet** — conecta Phantom via `window.phantom.solana.connect()` → SIWS: nonce → `signMessage` → verifica ed25519 server-side (tweetnacl + bs58) → upsert wallet
+3. **Política** — seleciona preset → atualiza `policies`
+4. **Buckets** — define targets em USD → atualiza `buckets.target_amount_cents`
 
 ### 6.3 Dashboard
-Server Component com dados frescos a cada request (`force-dynamic`):
-- **KpiGrid** — 4 métricas: total, líquido + runway, deployed + APR, compliance
-- **AlertsBanner** — até 4 tipos de alerta computados server-side
-- **BucketCard** — barra de progresso por categoria (operating/payroll/tax…)
-- **PositionsTable** — posições alocadas com protocolo, APR, risco
-- **SnapshotButton** — dispara `takeSnapshot()` Server Action → Helius RPC → insere snapshot → `revalidatePath`
 
-### 6.4 Policy Builder
-- Seletor de preset (3 cards)
+Server Component com `force-dynamic` — dados frescos a cada request:
+- **KpiGrid** — 4 métricas: total, líquido + runway, deployed + APR, compliance score
+- **AlertsBanner** — alertas computados server-side via `computeAlerts`
+- **BucketCard** — barra de progresso por categoria
+- **PositionsTable** — posições alocadas com protocolo, APR, risco, yield acruado
+- **SnapshotButton** — tRPC mutation `snapshot.takeManual` → Helius RPC → insere snapshot → `revalidatePath`
+- **Module cards** — links clicáveis para os 5 módulos (Policy, Copilot, Simulador, Execução, Relatórios)
+
+### 6.4 Demo Mode (`dev@capivara.xyz`)
+
+Intercepção por email em **todas** as camadas de dados — sem nenhuma query ao banco:
+
+- `dashboard/page.tsx` → retorna `<DemoDashboard />` antes de qualquer DB query
+- `server/context.ts` → `isDemoUser: true`, `orgId = DEMO_ORG_ID` (sem buscar membership)
+- `routers/snapshot.ts` → `latest`, `projection`, `takeManual` retornam dados mockados
+- `api/copilot/route.ts` → injeta snapshot mockado no contexto do Copilot
+
+Dados mockados (`src/lib/demo/index.ts`):
+- Total: $847.200 · Líquido: $312.400 · Kamino: $385.800 @ 5,84% · RWA: $149.000 @ 4,82%
+- Runway: 9,8 meses · Compliance: 94/100 · Burn: $85.000/mês
+
+### 6.5 Policy Builder
+
+- Seletor de preset (Conservative / Balanced / Aggressive)
 - Toggles por regra + sliders de parâmetros (MIN_RUNWAY_DAYS, MAX_CONCENTRATION_PCT, MIN_LIQUID_PCT, REBALANCE_TRIGGER) e checkboxes (ALLOCATION_WHITELIST)
-- **Geração por IA:** textarea em linguagem natural → `policyFromDescription()` Server Action → Claude Sonnet → JSON de regras → aplica no estado local → salvar
+- `saveAndActivate()` — arquiva policy ativa e insere nova versão como `active`
+- **Geração por IA:** textarea em linguagem natural → `policyFromDescription()` Server Action → Claude Sonnet → JSON de regras → strip de markdown fences → JSON.parse → aplica no estado local
+- Histórico de versões exibido abaixo do editor
 
-### 6.5 Copilot (AI Chat)
-- Chat streaming: `fetch /api/copilot` → `response.body.getReader()` → acumula chunks → renderiza em tempo real
+### 6.6 Copilot (AI Chat)
+
+- Streaming: `fetch /api/copilot` → `response.body.getReader()` → acumula chunks → renderiza em tempo real
 - AbortController para botão de parar stream
-- ⌘+Enter para enviar
-- Context injetado: snapshot atual + política + projeção de runway
-- **5 tools Anthropic:** `analyze_treasury`, `explain_policy`, `propose_allocation`, `simulate_action`, `draft_policy_from_description`
-- Prompt caching no system prompt (reduz latência e custo ~80% em turns seguintes)
+- Context injetado: snapshot atual + política ativa + projeção
+- **Tool-use loop:** `streamCopilotTurn` abre um novo stream após cada turno de tools, executa as tools e continua streamando até `stop_reason === "end_turn"` — garante resposta completa mesmo quando Claude chama `analyze_treasury` antes de responder
+- Prompt caching no system prompt — reduz latência ~80% nos turns seguintes
 
-### 6.6 Simulador
+**5 tools:**
+
+| Tool | Função |
+|---|---|
+| `analyze_treasury` | Diagnóstico completo do estado atual (runway, APR, concentração, violações) |
+| `explain_policy` | Explicação em linguagem natural das regras ativas |
+| `propose_allocation` | Valida runway mínimo antes de propor qualquer movimento |
+| `simulate_scenario` | Executa `projectScenario()` e retorna diff de métricas |
+| `draft_policy_from_description` | Descrição em PT-BR → `PolicyRule[]` JSON (usa Claude Opus 4.7) |
+
+### 6.7 Simulador
+
 - Sliders de depósito/saque por adapter (Kamino USDC, Mock RWA)
-- Recompute em tempo real via `useMemo` + `projectScenario` — zero round-trip ao servidor
-- Delta display: +/- colorido para runway, deployed%, APR estimado
+- Recompute em tempo real via `useMemo` + `projectScenario` — zero round-trip
+- **Modo hipotético:** quando `liquidUsd = 0` (wallet devnet sem saldo), ativa automaticamente com $500k padrão — usuário pode digitar qualquer valor; troca o snapshot efetivo mas não afeta o banco
+- Delta display: colorido para runway, APR, concentração, compliance
 - Botão "Salvar recomendação" → Server Action → insert em `recommendations`
+- Painel de violações do cenário com severidade warn/block
 
-### 6.7 Execução
-State machine de intents:
+### 6.8 Execução
+
+State machine de intents com 9 estados:
 ```
 DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRMED
                                                               → REJECTED / FAILED
 ```
-- Modo **simulado**: gera signature `SIM-<timestamp>` sem tocar na chain
-- Modo **real**: `buildTx()` → `signAndSend()` via Phantom → `confirmTx()` polling
+- **Modo simulado:** `SIM-<timestamp>` como tx signature, sem interação onchain
+- **Modo real:** `buildTx()` → `signAndSend()` via Phantom → `confirmTx()` polling
+- Valida intent contra policy via `validateActions` antes de enfileirar
+- Exibe histórico de execuções com status e tx signature
 
-### 6.8 Relatórios
-- **Decision Log:** timeline mesclada de `audit_log` + `events` ordenada por data
-- **Resumo Executivo:** Server Action chama Claude Sonnet 4.6 com dados do snapshot → texto PT-BR ≤150 palavras para o founder
-- **PDF Export:** jsPDF (dynamic import) → A4 com header, KPIs em grid 2 colunas, tabela de posições, violações, resumo executivo, footer
+### 6.9 Relatórios
 
-### 6.9 Cron (Supabase Edge Function)
-`supabase/functions/snapshot-cron/index.ts` — runtime Deno:
-- Chamada a cada 5 min via `pg_cron` no Supabase Postgres
+- **Decision Log:** timeline mesclada de `audit_log` + `events`, ordenada por data
+- **Resumo Executivo:** Server Action chama Claude Sonnet 4.6 com todos os KPIs → texto PT-BR ≤150 palavras, tom direto para o founder
+- **PDF Export:** jsPDF (dynamic import) → A4 com header, KPIs em grid 2 colunas, tabela de posições, violações, resumo executivo, rodapé com hash do snapshot
+
+### 6.10 Auto-Snapshots + Webhook
+
+**Supabase Edge Function** (`supabase/functions/snapshot-cron/index.ts`, runtime Deno):
+- Agendada a cada 5 min via `pg_cron`
 - Busca todas as wallets primárias cadastradas
-- Helius RPC: `getBalance` (SOL) + `getTokenAccountsByOwner` (USDC)
+- Helius RPC: `getBalance` + `getTokenAccountsByOwner`
 - Insere snapshot por org automaticamente
+
+**Helius Webhook** (`/api/webhooks/helius`):
+- Autenticado com `Authorization: Bearer <HELIUS_WEBHOOK_SECRET>`
+- Qualquer transação nos endereços monitorados → registra evento + dispara snapshot imediato
 
 ---
 
 ## 7. Fluxo Completo do Sistema
 
 ```
-1. Login
-   └── magic link → email → /auth/callback → session
+1. Registro / Login
+   └── email/password ou magic link → /auth/callback → session
 
 2. Onboarding (primeira vez)
    └── org → Phantom SIWS → política preset → targets de bucket
 
 3. Dashboard
-   └── Snapshot manual (ou automático via cron/webhook)
+   └── Snapshot manual (tRPC) ou automático (cron/webhook)
        └── AlertsBanner mostra violações e obrigações urgentes
 
 4. Policy Builder
-   └── Ajustar regras manualmente ou descrever em português → IA gera JSON
+   └── Ajustar regras manualmente OU descrever em português → IA gera JSON
 
 5. Copilot
-   └── Analisar tesouraria → IA retorna diagnóstico com base no snapshot
+   └── "Analise minha tesouraria" → IA chama analyze_treasury → diagnóstico completo
 
 6. Simulador
-   └── Arrastar sliders → ver projeção em tempo real → Salvar recomendação
+   └── Sliders (ou modo hipotético) → projeção real-time → Salvar recomendação
 
 7. Execução
-   └── Recomendação → Aprovar intent → Assinar com Phantom → Confirmar on-chain
+   └── Recomendação → Aprovar intent → Assinar com Phantom → Confirmar onchain
 
 8. Relatórios
    └── Gerar resumo executivo (IA) → Exportar PDF auditável
@@ -230,125 +283,238 @@ DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRM
 
 ## 8. Integração Solana
 
-### SIWS (Sign In With Solana)
-```
-Cliente:  conectar Phantom → solicitar nonce → assinar mensagem
-Servidor: verificar assinatura ed25519 (tweetnacl) → upsert wallet no DB
+### Phantom — Conexão Direta
+
+Usa `window.phantom.solana` diretamente, sem `@solana/wallet-adapter-react`:
+
+```typescript
+// src/lib/solana/wallet.tsx
+function getPhantom(): PhantomSolana | null {
+  const p = (window as { phantom?: { solana?: PhantomSolana } }).phantom?.solana;
+  return p?.isPhantom ? p : null;
+}
+
+async function connect() {
+  const phantom = getPhantom();
+  const { publicKey } = await phantom.connect();
+  return publicKey.toString();
+}
 ```
 
+Elimina o problema de timing do `select()` + `connect()` do wallet-adapter-react.
+
+### SIWS (Sign In With Solana)
+
+```
+Cliente:  window.phantom.solana.connect() → signMessage(nonce)
+Servidor: bs58.decode(address) → tweetnacl.sign.detached.verify(msg, sig, pubkey)
+          → upsert wallet no DB
+```
+
+Usa `bs58` em vez de `@solana/web3.js/PublicKey` para evitar ESM issues no servidor.
+
 ### Helius RPC
+
 - `getBalance` — saldo SOL em lamports
 - `getTokenAccountsByOwner` — saldo USDC devnet (mint `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`)
 - Fallback para `https://api.devnet.solana.com` se env não definida
-
-### Helius Webhook
-- Tipo: enhanced · Rede: devnet
-- Autenticação: `Authorization: Bearer <HELIUS_WEBHOOK_SECRET>`
-- Trigger: qualquer transação nos endereços cadastrados
-- Ação: registra evento em `events` + dispara novo snapshot para a org
+- Imports de `@solana/web3.js` sempre dentro de funções (`await import(...)`) para evitar registro Turbopack em tempo de inicialização
 
 ### Kamino Lending SDK
+
 - Adapter: `KaminoUsdcAdapter` em `src/lib/adapters/kamino.ts`
-- Métodos: `deposit(amountUsd)`, `withdraw(amountUsd)`, `getPosition()`
 - Market: `7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF` (devnet)
-- Externalizado do bundle Turbopack via `serverExternalPackages`
+- Métodos: `deposit(amountUsd)`, `withdraw(amountUsd)`, `readPosition(pubkey)`
+- Externalizado via `serverExternalPackages` no `next.config.ts`
 
 ### Mock RWA Adapter
+
 - Simula ativo tipo Ondo USDY — APR fixo 4.82%
-- Redeem delay de 1 dia (simula período de lock)
+- Redeem delay de 1 dia (campo `redeemable_at` em `mock_positions`)
 - Persiste posições em `mock_positions` no DB
 
 ---
 
 ## 9. IA — Anthropic Claude
 
-### Copilot (`streamCopilotTurn`)
-- Model: `claude-sonnet-4-6`
-- System prompt: contexto da org (snapshot + política + projeção) com **prompt caching** (`cache_control: ephemeral`) — reduz custo ~80% após primeiro turn
-- Streaming: async generator → `ReadableStream` no route handler → `getReader()` no cliente
-- 5 tools com guardrails: validações de whitelist, runway mínimo antes de propor alocação
+### Copilot — Tool-Use Loop com Streaming
 
-### Executive Summary (`generateExecutiveSummary`)
-- Server Action separada, sem streaming
-- Prompt estruturado com todos os KPIs da tesouraria
-- Resposta em PT-BR ≤150 palavras, tom direto para o founder
+```typescript
+// src/lib/agent/client.ts
+export async function* streamCopilotTurn(ctx, history, userMessage) {
+  const messages = [...history, { role: "user", content: userMessage }];
 
-### Policy from Description (`policyFromDescription`)
-- Prompt que mapeia linguagem natural → JSON de `PolicyRule[]`
-- Retorna preset sugerido + array de 7 regras com parâmetros
+  while (true) {
+    const stream = anthropic.messages.stream({ model: SONNET, tools, messages });
+
+    // Stream texto em tempo real
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta")
+        yield event.delta.text;
+    }
+
+    const final = await stream.finalMessage();
+    if (final.stop_reason !== "tool_use") break;  // resposta completa
+
+    // Executa tools e adiciona resultados
+    const results = await Promise.all(toolUseBlocks.map(executeToolCall));
+    messages.push({ role: "assistant", content: final.content });
+    messages.push({ role: "user",      content: toolResults });
+    // Loop continua → próximo stream envia a resposta final com dados das tools
+  }
+}
+```
+
+### Policy from Description — JSON Robusto
+
+```typescript
+const raw = response.content.map((b) => b.text).join("").trim();
+// Strip markdown code fences caso Claude os inclua
+const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+const parsed = JSON.parse(text);
+```
+
+### Modelos usados
+
+| Caso | Modelo | Motivo |
+|---|---|---|
+| Copilot chat + streaming | claude-sonnet-4-6 | Latência + custo |
+| Draft policy from description | claude-opus-4-7 | Qualidade do JSON gerado |
+| Executive summary (reports) | claude-sonnet-4-6 | Qualidade suficiente, mais rápido |
+| Policy from description (policy page) | claude-sonnet-4-6 | Server Action sem streaming |
+
+### Prompt caching
+
+System prompt (snapshot + política) tem `cache_control: { type: "ephemeral" }`. Após o primeiro turn da sessão, o cache fica warm por 5 min — reduz custo e latência ~80% nas mensagens seguintes.
 
 ---
 
-## 10. Deploy e Infraestrutura
+## 10. Responsividade e UX
+
+### AppShell — Sidebar Responsiva
+
+```
+Desktop (md+): sidebar fixa de 208px, sempre visível
+Mobile:        sidebar ausente — hamburger no top bar
+               → clique abre sidebar como overlay (fixed, z-40)
+               → backdrop semitransparente fecha ao clicar fora
+               → links de nav fecham o overlay automaticamente
+```
+
+### ProfilePanel
+
+Modal deslizante pelo avatar do usuário na sidebar:
+- Exibe nome, email, org, role
+- Seção de wallet: mostra endereço vinculado ou botão de conectar Phantom + SIWS
+- Dinâmico (`ssr: false`) para evitar SSR dos hooks de wallet
+
+---
+
+## 11. Deploy e Infraestrutura
 
 ```
 Vercel
 ├── Região: gru1 (São Paulo)
 ├── Build: next build (Turbopack)
-├── Env vars: via dashboard (não hardcodadas)
+├── postinstall: patch-package (aplica patch rpc-websockets antes de deploy)
+├── Env vars: via dashboard
 └── URL: https://treasury-os-black.vercel.app
 
 Supabase
 ├── Projeto: joeyutliqcqcefeidsdf
 ├── RLS: ativo em todas as tabelas
-├── Auth: magic link habilitado
-│         Redirect URL: https://treasury-os-black.vercel.app/auth/callback
+├── Auth: email/password + magic link habilitados
+│         Redirect: https://treasury-os-black.vercel.app/auth/callback
 └── Edge Function: snapshot-cron (Deno)
     └── pg_cron: SELECT cron.schedule('*/5 * * * *', ...)
 
 GitHub
-└── https://github.com/Nogcrypto/treasury_os
-    └── branch: master → auto-deploy Vercel
+└── https://github.com/Nogcrypto/treasury_os  [master → auto-deploy Vercel]
 ```
 
 ---
 
-## 11. Estrutura de Arquivos
+## 12. Estrutura de Arquivos
 
 ```
 src/
 ├── app/
-│   ├── (app)/          — rotas autenticadas
-│   │   ├── dashboard/  — page.tsx + actions.ts
-│   │   ├── policy/     — page.tsx + actions.ts
-│   │   ├── copilot/    — page.tsx
-│   │   ├── simulator/  — page.tsx + actions.ts
-│   │   ├── execution/  — page.tsx + actions.ts + ExecutionClient.tsx
-│   │   └── reports/    — page.tsx + actions.ts + ReportsClient.tsx
-│   ├── (auth)/login/   — page.tsx + actions.ts
+│   ├── (app)/           — rotas autenticadas
+│   │   ├── dashboard/   — page.tsx + actions.ts
+│   │   ├── policy/      — page.tsx + actions.ts
+│   │   ├── copilot/     — page.tsx
+│   │   ├── simulator/   — page.tsx + actions.ts
+│   │   ├── execution/   — page.tsx + actions.ts
+│   │   └── reports/     — page.tsx + actions.ts
+│   ├── (auth)/
+│   │   ├── login/       — page.tsx + actions.ts
+│   │   ├── register/    — page.tsx + actions.ts
+│   │   ├── forgot-password/ — page.tsx + actions.ts
+│   │   └── callback/    — route.ts (Supabase OAuth callback)
 │   ├── (onboarding)/setup/ — page.tsx + actions.ts
 │   └── api/
-│       ├── copilot/    — route.ts (streaming)
-│       ├── trpc/[trpc] — route.ts
+│       ├── copilot/     — route.ts (streaming + tool-use loop)
+│       ├── setup/       — route.ts (createOrg, linkWallet, setOrgPreset, updateBuckets)
+│       ├── trpc/[trpc]/ — route.ts
 │       └── webhooks/helius/ — route.ts
 ├── components/
-│   ├── AppShell.tsx        — sidebar nav
-│   ├── AlertsBanner.tsx    — 4 tipos de alerta
-│   ├── Copilot.tsx         — chat streaming UI
-│   ├── ExecutionDrawer.tsx — state machine UI
-│   ├── PdfExportButton.tsx — jsPDF export
-│   ├── PolicyBuilder.tsx   — editor de regras + IA
-│   ├── Simulator.tsx       — sliders + projeção real-time
-│   ├── dashboard/          — KpiGrid, BucketCard, PositionsTable, SnapshotButton
-│   └── onboarding/         — SetupWizard (4 steps + SolanaProvider)
+│   ├── AppShell.tsx          — sidebar responsiva (hamburger mobile)
+│   ├── AlertsBanner.tsx      — 4 tipos de alerta
+│   ├── Copilot.tsx           — chat streaming UI + abort
+│   ├── ExecutionDrawer.tsx   — state machine de intents
+│   ├── PdfExportButton.tsx   — jsPDF export (dynamic import)
+│   ├── PolicyBuilder.tsx     — editor de regras + geração por IA
+│   ├── ProfilePanel.tsx      — modal de perfil + wallet connect
+│   ├── Simulator.tsx         — sliders + modo hipotético + projeção real-time
+│   ├── dashboard/            — KpiGrid, BucketCard, PositionsTable, SnapshotButton
+│   └── onboarding/           — SetupWizard (4 steps + direct Phantom API)
 ├── lib/
-│   ├── adapters/       — interface + kamino.ts + mock-rwa.ts
-│   ├── agent/          — client.ts + tools.ts + prompts.ts
-│   ├── db/             — schema.ts (12 tabelas) + client.ts
-│   ├── rules-engine/   — types + policy + projections + alerts + validation
-│   ├── solana/         — wallet.tsx + siws.ts + indexer.ts + tx.ts
-│   └── supabase/       — client.ts + server.ts
+│   ├── adapters/        — interface + kamino.ts + mock-rwa.ts
+│   ├── agent/           — client.ts (tool-use loop) · tools.ts · prompts.ts
+│   ├── db/              — schema.ts (13 tabelas) · client.ts
+│   ├── demo/            — index.ts (dados mockados para dev@capivara.xyz)
+│   ├── rules-engine/    — types · policy (presets) · projections · alerts · validation
+│   ├── solana/          — wallet.tsx (direct Phantom) · siws.ts (bs58) · indexer.ts · tx.ts
+│   └── supabase/        — client.ts · server.ts
 └── server/
-    ├── trpc.ts          — contexto + procedures (public/protected/org)
-    └── routers/         — org, snapshot, bucket, obligation, policy,
-                           intent, recommendation
+    ├── trpc.ts          — contexto (isDemoUser, userEmail, orgId) · procedures
+    └── routers/         — org · snapshot · bucket · obligation · policy
+                           intent · recommendation
+patches/
+└── rpc-websockets+9.3.9.patch   — substitui require('uuid') por crypto.randomBytes
 supabase/
 └── functions/snapshot-cron/index.ts  — Deno edge function
 drizzle/
-├── migrations/0000_initial.sql
+├── migrations/0000_initial.sql       — schema completo (13 tabelas)
+├── migrations/0002_users_profile_fields.sql  — full_name, phone, country
 └── seed.sql
 docs/
 ├── PLAN.md
 ├── Backlog.md
 └── TECHNICAL.md  ← este arquivo
+```
+
+---
+
+## 13. Variáveis de Ambiente
+
+```env
+# Supabase
+DATABASE_URL=postgresql://postgres.xxx:password@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Helius
+HELIUS_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+HELIUS_RPC_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+NEXT_PUBLIC_HELIUS_RPC_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+HELIUS_WEBHOOK_SECRET=<64-char hex — openssl rand -hex 32>
+
+# App
+NEXT_PUBLIC_APP_URL=https://your-domain.vercel.app
+NEXT_PUBLIC_SOLANA_CLUSTER=devnet
 ```

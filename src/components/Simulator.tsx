@@ -54,9 +54,33 @@ interface SimulatorProps {
 }
 
 export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
-  const liquidMax = snapshot.liquidUsd;
-  const kaminoPos = snapshot.positions.find((p) => p.adapterId === "kamino-usdc-devnet");
-  const rwaPos = snapshot.positions.find((p) => p.adapterId === "mock-rwa-usdy");
+  const realLiquid = snapshot.liquidUsd;
+  const realTotal  = snapshot.totalUsd;
+  const hasRealCapital = realTotal > 0;
+
+  // Hypothetical mode: override when wallet has no balance (devnet / no snapshot)
+  const [hypotheticalInput, setHypotheticalInput] = useState(
+    hasRealCapital ? "" : "500000"
+  );
+  const [useHypothetical, setUseHypothetical] = useState(!hasRealCapital);
+
+  const hypotheticalUsd = parseFloat(hypotheticalInput.replace(/[^0-9.]/g, "")) || 0;
+
+  // The snapshot fed to projections — swap totalUsd/liquidUsd when in hypothetical mode
+  const effectiveSnapshot: TreasurySnapshot = useMemo(() => {
+    if (!useHypothetical || hypotheticalUsd <= 0) return snapshot;
+    return {
+      ...snapshot,
+      totalUsd:  hypotheticalUsd,
+      liquidUsd: hypotheticalUsd,
+      positions: [],
+    };
+  }, [snapshot, useHypothetical, hypotheticalUsd]);
+
+  const liquidMax = useHypothetical ? hypotheticalUsd : realLiquid;
+
+  const kaminoPos = effectiveSnapshot.positions.find((p) => p.adapterId === "kamino-usdc-devnet");
+  const rwaPos    = effectiveSnapshot.positions.find((p) => p.adapterId === "mock-rwa-usdy");
 
   const [depositKamino, setDepositKamino] = useState(0);
   const [depositRwa, setDepositRwa] = useState(0);
@@ -75,10 +99,10 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
     return result;
   }, [depositKamino, depositRwa, withdrawKamino, withdrawRwa]);
 
-  const baseline: ProjectionResult = useMemo(() => projectRunway(snapshot, policy), [snapshot, policy]);
+  const baseline: ProjectionResult = useMemo(() => projectRunway(effectiveSnapshot, policy), [effectiveSnapshot, policy]);
   const scenario: ProjectionResult = useMemo(
-    () => (actions.length > 0 ? projectScenario(snapshot, policy, actions) : baseline),
-    [snapshot, policy, actions, baseline]
+    () => (actions.length > 0 ? projectScenario(effectiveSnapshot, policy, actions) : baseline),
+    [effectiveSnapshot, policy, actions, baseline]
   );
 
   const hasChanges = actions.length > 0;
@@ -96,7 +120,58 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-6">
+      {/* Capital base — shown when wallet is empty or hypothetical mode active */}
+      <div className="rounded-xl border border-line bg-bg-1 p-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-0.5">
+              Capital base
+            </div>
+            <div className="text-sm text-fg-2">
+              {hasRealCapital
+                ? <span className="font-mono text-fg">{fmtUSD(realTotal)} na carteira</span>
+                : <span className="text-warn font-mono">$0 detectado — usando capital hipotético</span>
+              }
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-fg-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={useHypothetical}
+              onChange={(e) => {
+                setUseHypothetical(e.target.checked);
+                setDepositKamino(0);
+                setDepositRwa(0);
+                setWithdrawKamino(0);
+                setWithdrawRwa(0);
+              }}
+              className="accent-accent"
+            />
+            Modo hipotético
+          </label>
+        </div>
+        {useHypothetical && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-xs text-fg-3 font-mono shrink-0">Capital hipotético (USD)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={hypotheticalInput}
+              onChange={(e) => {
+                setHypotheticalInput(e.target.value);
+                setDepositKamino(0);
+                setDepositRwa(0);
+              }}
+              placeholder="500000"
+              className="w-40 bg-bg-2 border border-line rounded-lg px-3 py-1.5 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors"
+            />
+            <span className="text-xs text-fg-3">{fmtUSD(hypotheticalUsd)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Controls */}
       <div className="space-y-6">
         <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
@@ -206,6 +281,7 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
           </div>
         )}
       </div>
+      </div>{/* end grid */}
     </div>
   );
 }
