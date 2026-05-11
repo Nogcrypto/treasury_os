@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 
 type Phantom = {
   isPhantom: boolean;
@@ -25,6 +26,7 @@ interface WalletButtonProps {
 }
 
 export function WalletButton({ serverWalletAddress }: WalletButtonProps) {
+  const t = useTranslations("wallet");
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,18 +83,18 @@ export function WalletButton({ serverWalletAddress }: WalletButtonProps) {
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-9 z-50 bg-bg-1 border border-line rounded-xl shadow-lg p-1 min-w-[160px]">
+            <div className="absolute right-0 top-9 z-50 bg-bg-1 border border-line rounded-xl shadow-lg p-1 min-w-40">
               <button
                 onClick={() => { navigator.clipboard.writeText(display); setMenuOpen(false); }}
                 className="w-full text-left px-3 py-2 text-xs text-fg-2 hover:bg-bg-2 rounded-lg transition-colors font-mono"
               >
-                Copiar endereço
+                {t("copy_address")}
               </button>
               <button
                 onClick={disconnect}
                 className="w-full text-left px-3 py-2 text-xs text-neg hover:bg-bg-2 rounded-lg transition-colors"
               >
-                Desconectar
+                {t("disconnect")}
               </button>
             </div>
           </>
@@ -109,7 +111,7 @@ export function WalletButton({ serverWalletAddress }: WalletButtonProps) {
         rel="noreferrer"
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line text-[10px] font-mono text-fg-3 hover:border-accent/30 hover:text-fg transition-colors"
       >
-        Instalar Phantom
+        {t("install_phantom")}
       </a>
     );
   }
@@ -120,7 +122,7 @@ export function WalletButton({ serverWalletAddress }: WalletButtonProps) {
       disabled={connecting}
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-bg-2 text-[10px] font-mono text-fg-2 hover:border-accent/40 hover:text-fg disabled:opacity-50 transition-colors"
     >
-      {connecting ? "Conectando…" : "Conectar Wallet"}
+      {connecting ? t("connecting") : t("connect_wallet")}
     </button>
   );
 }

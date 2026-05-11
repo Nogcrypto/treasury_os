@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import {
   createObligation,
   updateObligation,
@@ -13,7 +14,7 @@ export interface ObligationRow {
   id: string;
   label: string;
   amountCents: number;
-  dueDate: string; // ISO string — serializable across server/client boundary
+  dueDate: string;
   recurrence: string;
 }
 
@@ -21,13 +22,6 @@ interface ObligationsPanelProps {
   obligations: ObligationRow[];
   isDemo?: boolean;
 }
-
-const RECURRENCE_LABELS: Record<string, string> = {
-  once:      "única",
-  monthly:   "mensal",
-  quarterly: "trimestral",
-  annual:    "anual",
-};
 
 const FMT_USD = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -67,6 +61,7 @@ function ObligationForm({
   error: string | null;
   isPending: boolean;
 }) {
+  const t = useTranslations("dashboard.obligations");
   const [form, setForm] = useState<ObligationInput>(initial);
 
   function set(key: keyof ObligationInput, value: string | number) {
@@ -79,7 +74,7 @@ function ObligationForm({
         <div className="col-span-2">
           <input
             type="text"
-            placeholder="Descrição da obrigação"
+            placeholder={t("label" as never)}
             value={form.label}
             onChange={(e) => set("label", e.target.value)}
             className="w-full px-2.5 py-1.5 text-xs bg-bg-1 border border-line rounded-lg text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/50 transition-colors"
@@ -88,7 +83,7 @@ function ObligationForm({
         <div>
           <input
             type="number"
-            placeholder="Valor (USD)"
+            placeholder={t("amount" as never)}
             value={form.amountUsd || ""}
             onChange={(e) => set("amountUsd", Number(e.target.value))}
             min={1}
@@ -109,10 +104,10 @@ function ObligationForm({
             onChange={(e) => set("recurrence", e.target.value as Recurrence)}
             className="w-full px-2.5 py-1.5 text-xs bg-bg-1 border border-line rounded-lg text-fg focus:outline-none focus:border-accent/50 transition-colors"
           >
-            <option value="once">Única</option>
-            <option value="monthly">Mensal</option>
-            <option value="quarterly">Trimestral</option>
-            <option value="annual">Anual</option>
+            <option value="once">{t("recurrence_once" as never)}</option>
+            <option value="monthly">{t("recurrence_monthly" as never)}</option>
+            <option value="quarterly">{t("recurrence_quarterly" as never)}</option>
+            <option value="annual">{t("recurrence_annual" as never)}</option>
           </select>
         </div>
       </div>
@@ -123,7 +118,7 @@ function ObligationForm({
           onClick={onCancel}
           className="text-xs text-fg-3 hover:text-fg px-3 py-1.5 transition-colors"
         >
-          Cancelar
+          {t("cancel" as never)}
         </button>
         <button
           type="button"
@@ -131,7 +126,7 @@ function ObligationForm({
           onClick={() => onSave(form)}
           className="text-xs font-medium text-accent border border-accent/40 bg-accent/5 hover:bg-accent/10 px-4 py-1.5 rounded-lg transition-all disabled:opacity-40"
         >
-          {isPending ? "Salvando…" : "Salvar"}
+          {isPending ? t("save" as never) + "…" : t("save" as never)}
         </button>
       </div>
     </div>
@@ -139,11 +134,19 @@ function ObligationForm({
 }
 
 export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPanelProps) {
+  const t = useTranslations("dashboard.obligations");
   const [horizon, setHorizon] = useState<Horizon>("30");
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const recurrenceLabels: Record<string, string> = {
+    once:      t("recurrence_once" as never),
+    monthly:   t("recurrence_monthly" as never),
+    quarterly: t("recurrence_quarterly" as never),
+    annual:    t("recurrence_annual" as never),
+  };
 
   const enriched = obligations.map((o) => ({
     ...o,
@@ -167,7 +170,7 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
     setFormError(null);
     startTransition(async () => {
       const result = await createObligation(input);
-      if (!result.ok) { setFormError(result.error ?? "Erro."); return; }
+      if (!result.ok) { setFormError(result.error ?? t("error_save" as never)); return; }
       setShowAdd(false);
     });
   }
@@ -176,7 +179,7 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
     setFormError(null);
     startTransition(async () => {
       const result = await updateObligation(id, input);
-      if (!result.ok) { setFormError(result.error ?? "Erro."); return; }
+      if (!result.ok) { setFormError(result.error ?? t("error_save" as never)); return; }
       setEditId(null);
     });
   }
@@ -193,14 +196,14 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
       <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-fg-3">◷</span>
-          <span className="text-xs font-medium text-fg">Obrigações</span>
+          <span className="text-xs font-medium text-fg">{t("title" as never)}</span>
         </div>
         {!isDemo && (
           <button
             onClick={() => { setShowAdd(true); setEditId(null); }}
             className="text-[10px] font-mono text-accent hover:text-fg border border-accent/30 hover:border-accent/60 px-2 py-0.5 rounded transition-all"
           >
-            + Adicionar
+            + {t("add" as never)}
           </button>
         )}
       </div>
@@ -235,7 +238,9 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
                   : "text-fg-3 hover:text-fg-2"
               }`}
             >
-              <div className="text-[10px] font-mono">{h === "90" ? "90+ dias" : `${h} dias`}</div>
+              <div className="text-[10px] font-mono">
+                {h === "30" ? t("tab_30" as never) : h === "60" ? t("tab_60" as never) : t("tab_90" as never)}
+              </div>
               <div className={`text-[11px] font-mono mt-0.5 ${count > 0 && h === "30" ? "text-warn" : "text-fg-3"}`}>
                 {total > 0 ? FMT_USD.format(total / 100) : "—"}
               </div>
@@ -247,7 +252,7 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
       {/* List */}
       {filtered.length === 0 ? (
         <div className="px-4 py-5 text-center text-[11px] text-fg-3">
-          Nenhuma obrigação nos próximos {horizon === "90" ? "61–90" : horizon} dias.
+          {t("empty" as never)}
         </div>
       ) : (
         <div className="divide-y divide-line">
@@ -271,10 +276,10 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-fg truncate">{o.label}</div>
                     <div className="text-[10px] text-fg-3 font-mono mt-0.5">
-                      {RECURRENCE_LABELS[o.recurrence] ?? o.recurrence}
+                      {recurrenceLabels[o.recurrence] ?? o.recurrence}
                       {" · "}
                       <span className={o.daysLeft <= 7 ? "text-neg" : o.daysLeft <= 30 ? "text-warn" : "text-fg-3"}>
-                        em {o.daysLeft}d
+                        {o.daysLeft}d
                       </span>
                     </div>
                   </div>
@@ -287,14 +292,14 @@ export function ObligationsPanel({ obligations, isDemo = false }: ObligationsPan
                         <button
                           onClick={() => { setEditId(o.id); setShowAdd(false); setFormError(null); }}
                           className="text-[10px] text-fg-3 hover:text-fg p-1 rounded hover:bg-bg-2 transition-colors"
-                          title="Editar"
+                          title={t("edit" as never)}
                         >
                           ✎
                         </button>
                         <button
                           onClick={() => handleDelete(o.id)}
                           className="text-[10px] text-fg-3 hover:text-neg p-1 rounded hover:bg-bg-2 transition-colors"
-                          title="Excluir"
+                          title={t("delete" as never)}
                           disabled={isPending}
                         >
                           ✕

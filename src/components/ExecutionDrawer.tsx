@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { applyScenarioActions, projectRunway, estimateMonthlyBurnUsd } from "@/lib/rules-engine/projections";
 import type { TreasurySnapshot, Policy, ScenarioAction } from "@/lib/rules-engine/types";
 
@@ -40,18 +41,21 @@ function fmtUSD(n: number) {
 function shortId(id: string) { return id.length > 8 ? id.slice(0, 8).toUpperCase() : id.toUpperCase(); }
 function shortTx(tx: string)  { return `${tx.slice(0, 5)}…${tx.slice(-4)}`; }
 
-function fmtTime(d: Date | string | null | undefined): string {
+function fmtTime(d: Date | string | null | undefined, locale: string): string {
   if (!d) return "—";
-  return new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const fmtLocale = locale === "en" ? "en-US" : "pt-BR";
+  return new Date(d).toLocaleTimeString(fmtLocale, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function fmtRelative(d: Date | string): string {
+
+function fmtRelative(d: Date | string, nowLabel: string, yesterdayLabel: string, locale: string): string {
   const diff = Date.now() - new Date(d).getTime();
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return "agora";
+  if (min < 1) return nowLabel;
   if (min < 60) return `${min}min`;
   const h = Math.floor(min / 60);
-  if (h < 24) return h === 1 ? "ontem" : `${h}h`;
-  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  if (h < 24) return h === 1 ? yesterdayLabel : `${h}h`;
+  const fmtLocale = locale === "en" ? "en-US" : "pt-BR";
+  return new Date(d).toLocaleDateString(fmtLocale, { day: "2-digit", month: "short" });
 }
 
 const KIND_BADGE: Record<string, { label: string; cls: string }> = {
@@ -60,47 +64,11 @@ const KIND_BADGE: Record<string, { label: string; cls: string }> = {
   rebalance: { label: "REBALANCE", cls: "bg-warn/10 text-warn border-warn/25" },
 };
 
-function displayStatus(intent: IntentRow): { label: string; cls: string } {
-  if (intent.status === "confirmed" && intent.kind === "deposit") {
-    return { label: "ACTIVE", cls: "text-accent border-accent/40 bg-accent/10" };
-  }
-  if (intent.status === "confirmed") {
-    return { label: "CLOSED", cls: "text-fg-3 border-line bg-bg-2" };
-  }
-  if (["rejected", "failed", "expired"].includes(intent.status)) {
-    return { label: intent.status.toUpperCase(), cls: "text-neg border-neg/30 bg-neg/5" };
-  }
-  if (["signing", "broadcast", "queued"].includes(intent.status)) {
-    return { label: intent.status.toUpperCase(), cls: "text-warn border-warn/30 bg-warn/5" };
-  }
-  return { label: intent.status.toUpperCase(), cls: "text-fg-2 border-line" };
-}
-
-function displayValue(intent: IntentRow): { text: string; cls: string } {
-  const p = intent.paramsJson as { amountUsd?: number };
-  if (!p.amountUsd) return { text: "—", cls: "text-fg" };
-  const sign = intent.kind === "withdraw" ? "-" : "+";
-  const cls = intent.kind === "withdraw" ? "text-neg" : "text-accent";
-  return { text: `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(p.amountUsd)}`, cls };
-}
-
 // ── State machine timeline ─────────────────────────────────────────────────────
 
 const STATE_MACHINE: IntentStatus[] = [
   "draft", "proposed", "approved", "queued", "signing", "broadcast", "confirmed",
 ];
-
-const STATE_LABELS: Record<string, string> = {
-  draft:     "Draft",
-  proposed:  "Proposed",
-  approved:  "Approved by você",
-  queued:    "Queued",
-  signing:   "Signing (Phantom)",
-  broadcast: "Broadcast → devnet",
-  confirmed: "Confirmed",
-  rejected:  "Rejected",
-  failed:    "Failed",
-};
 
 function stateIndex(status: IntentStatus) {
   if (status === "rejected" || status === "failed" || status === "expired") return -1;
@@ -111,7 +79,6 @@ function deriveTimestamps(intent: IntentRow) {
   const created = new Date(intent.createdAt).getTime();
   const updated = new Date(intent.updatedAt).getTime();
   const idx = stateIndex(intent.status as IntentStatus);
-  // Spread artificial timestamps between createdAt and updatedAt
   const spread = Math.max(0, updated - created);
   return STATE_MACHINE.map((_, i) => {
     if (i === 0) return new Date(created);
@@ -137,7 +104,6 @@ function computeRulesValidation(
   const amountUsd = params.amountUsd ?? 0;
   const isKamino = adapterId.includes("kamino");
 
-  // Treat rebalance as deposit for simulation (conservative — shows post-deploy state)
   const actionKind: ScenarioAction["kind"] =
     intent.kind === "withdraw" ? "withdraw" : "deposit";
 
@@ -186,11 +152,11 @@ function computeRulesValidation(
         case "ALLOCATION_WHITELIST":
           return { rule: r.id, pass: true, detail: `${adapterId} ⊂ whitelist ✓` };
         case "YIELD_ONLY_EXCESS":
-          return { rule: r.id, pass: true, detail: "excedente ≥ reserva de emergência ✓" };
+          return { rule: r.id, pass: true, detail: "excess ≥ emergency reserve ✓" };
         case "BUCKET_TARGET":
-          return { rule: r.id, pass: true, detail: "buckets dentro do target ✓" };
+          return { rule: r.id, pass: true, detail: "buckets within target ✓" };
         case "REBALANCE_TRIGGER":
-          return { rule: r.id, pass: true, detail: "desvio de buckets < threshold ✓" };
+          return { rule: r.id, pass: true, detail: "bucket deviation < threshold ✓" };
         default:
           return { rule: r.id, pass: true, detail: "✓" };
       }
@@ -200,6 +166,7 @@ function computeRulesValidation(
 // ── Create intent modal ───────────────────────────────────────────────────────
 
 function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: ExecutionDrawerProps["onCreate"] }) {
+  const t = useTranslations("execution");
   const [kind, setKind] = useState<"deposit" | "withdraw" | "rebalance">("deposit");
   const [adapterId, setAdapterId] = useState("kamino-usdc-devnet");
   const [amount, setAmount] = useState("");
@@ -207,13 +174,13 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
   const [error, setError] = useState("");
 
   async function handleCreate() {
-    if (!amount || parseFloat(amount) <= 0) { setError("Informe um valor válido."); return; }
+    if (!amount || parseFloat(amount) <= 0) { setError(t("modal.error_amount" as never)); return; }
     setLoading(true);
     try {
       await onCreate({ kind, adapterId, amountUsd: parseFloat(amount) });
       onClose();
     } catch (e: unknown) {
-      setError((e as Error).message ?? "Erro ao criar intent");
+      setError((e as Error).message ?? t("modal.error_create" as never));
     } finally {
       setLoading(false);
     }
@@ -223,12 +190,12 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div className="bg-bg-1 border border-line rounded-xl w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between mb-5">
-          <h3 className="text-sm font-semibold text-fg">Nova intent</h3>
+          <h3 className="text-sm font-semibold text-fg">{t("modal.title" as never)}</h3>
           <button onClick={onClose} className="text-fg-3 hover:text-fg text-xs">✕</button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-fg-3 block mb-1.5">Tipo</label>
+            <label className="text-xs text-fg-3 block mb-1.5">{t("modal.type_label" as never)}</label>
             <div className="flex gap-2">
               {(["deposit", "withdraw", "rebalance"] as const).map((k) => (
                 <button key={k} onClick={() => setKind(k)}
@@ -240,7 +207,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
           </div>
 
           <div>
-            <label className="text-xs text-fg-3 block mb-1.5">Protocolo</label>
+            <label className="text-xs text-fg-3 block mb-1.5">{t("modal.protocol_label" as never)}</label>
             <select value={adapterId} onChange={(e) => setAdapterId(e.target.value)}
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-xs font-mono text-fg focus:outline-none focus:border-accent/60">
               <option value="kamino-usdc-devnet">Kamino Finance (USDC)</option>
@@ -249,7 +216,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
           </div>
 
           <div>
-            <label className="text-xs text-fg-3 block mb-1.5">Valor USD</label>
+            <label className="text-xs text-fg-3 block mb-1.5">{t("modal.amount_label" as never)}</label>
             <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000"
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-xs font-mono text-fg focus:outline-none focus:border-accent/60" />
           </div>
@@ -258,7 +225,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
 
           <button onClick={handleCreate} disabled={loading}
             className="w-full py-2.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold disabled:opacity-40">
-            {loading ? "Criando…" : "Criar intent →"}
+            {loading ? t("modal.creating" as never) : t("modal.create_btn" as never)}
           </button>
         </div>
       </div>
@@ -287,6 +254,9 @@ function IntentPanel({
   onReject: () => Promise<void>;
   onClose: () => void;
 }) {
+  const t = useTranslations("execution");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
   const [loading, setLoading] = useState<string | null>(null);
   const params = intent.paramsJson as { adapterId?: string; amountUsd?: number };
   const isTerminal = ["confirmed", "rejected", "failed", "expired"].includes(intent.status);
@@ -297,8 +267,49 @@ function IntentPanel({
   const isRejected = ["rejected", "failed", "expired"].includes(intent.status);
   const checks = computeRulesValidation(intent, snapshot, policy);
   const passCount = checks.filter((c) => c.pass).length;
-  const title = `${intent.kind === "deposit" ? "Depositar" : intent.kind === "withdraw" ? "Sacar" : "Rebalancear"} ${params.amountUsd ? fmtUSD(params.amountUsd) : ""} ${params.adapterId?.includes("kamino") ? "em Kamino" : params.adapterId?.includes("rwa") ? "em RWA" : ""}`.trim();
+
+  const stateLabels: Record<string, string> = {
+    draft:     t("state_labels.draft" as never),
+    proposed:  t("state_labels.proposed" as never),
+    approved:  t("state_labels.approved" as never),
+    queued:    t("state_labels.queued" as never),
+    signing:   t("state_labels.signing" as never),
+    broadcast: t("state_labels.broadcast" as never),
+    confirmed: t("state_labels.confirmed" as never),
+    rejected:  t("state_labels.rejected" as never),
+    failed:    t("state_labels.failed" as never),
+  };
+
+  function displayStatus(i: IntentRow): { label: string; cls: string } {
+    if (i.status === "confirmed" && i.kind === "deposit") {
+      return { label: t("panel.status_active" as never), cls: "text-accent border-accent/40 bg-accent/10" };
+    }
+    if (i.status === "confirmed") {
+      return { label: t("panel.status_closed" as never), cls: "text-fg-3 border-line bg-bg-2" };
+    }
+    if (["rejected", "failed", "expired"].includes(i.status)) {
+      return { label: i.status.toUpperCase(), cls: "text-neg border-neg/30 bg-neg/5" };
+    }
+    if (["signing", "broadcast", "queued"].includes(i.status)) {
+      return { label: i.status.toUpperCase(), cls: "text-warn border-warn/30 bg-warn/5" };
+    }
+    return { label: i.status.toUpperCase(), cls: "text-fg-2 border-line" };
+  }
+
+  const verbLabel =
+    intent.kind === "deposit" ? t("panel.title_deposit" as never) :
+    intent.kind === "withdraw" ? t("panel.title_withdraw" as never) :
+    t("panel.title_rebalance" as never);
+
+  const protocolLabel =
+    params.adapterId?.includes("kamino") ? `${t("panel.title_in" as never)} Kamino` :
+    params.adapterId?.includes("rwa")    ? `${t("panel.title_in" as never)} RWA` : "";
+
+  const title = `${verbLabel} ${params.amountUsd ? fmtUSD(params.amountUsd) : ""} ${protocolLabel}`.trim();
   const statusDisplay = displayStatus(intent);
+
+  const nowLabel = tCommon("now");
+  const yesterdayLabel = tCommon("yesterday");
 
   async function run(action: () => Promise<void>, key: string) {
     setLoading(key);
@@ -322,7 +333,7 @@ function IntentPanel({
           </span>
         </div>
         <div className="text-[10px] font-mono text-fg-3 mt-1">
-          ESTADO ATUAL · <span className={statusDisplay.cls.includes("accent") ? "text-accent" : "text-fg-2"}>{intent.status.toUpperCase()}</span>
+          {t("panel.current_state" as never)} · <span className={statusDisplay.cls.includes("accent") ? "text-accent" : "text-fg-2"}>{intent.status.toUpperCase()}</span>
         </div>
       </div>
 
@@ -334,8 +345,8 @@ function IntentPanel({
               <div className="w-5 h-5 rounded-full border-2 border-neg flex items-center justify-center shrink-0">
                 <span className="text-neg text-[10px]">✕</span>
               </div>
-              <span className="text-xs text-neg font-mono">{STATE_LABELS[intent.status]}</span>
-              <span className="text-[10px] font-mono text-fg-3 ml-auto">{fmtTime(intent.updatedAt)}</span>
+              <span className="text-xs text-neg font-mono">{stateLabels[intent.status]}</span>
+              <span className="text-[10px] font-mono text-fg-3 ml-auto">{fmtTime(intent.updatedAt, locale)}</span>
             </div>
           ) : STATE_MACHINE.map((state, i) => {
             const done = currentIdx >= 0 && i <= currentIdx;
@@ -349,10 +360,10 @@ function IntentPanel({
                   {!done && isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-warn animate-pulse" />}
                 </div>
                 <span className={`text-xs font-mono ${done ? "text-fg" : "text-fg-3"} ${isCurrent ? "font-semibold" : ""}`}>
-                  {STATE_LABELS[state]}
+                  {stateLabels[state]}
                 </span>
                 {done && (
-                  <span className="text-[10px] font-mono text-fg-3 ml-auto">{fmtTime(timestamps[i])}</span>
+                  <span className="text-[10px] font-mono text-fg-3 ml-auto">{fmtTime(timestamps[i], locale)}</span>
                 )}
               </div>
             );
@@ -362,7 +373,9 @@ function IntentPanel({
 
       {/* Details section */}
       <div className="px-5 py-4 border-b border-line shrink-0">
-        <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider mb-3">⊙ Detalhes</div>
+        <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider mb-3">
+          {t("panel.details_label" as never)}
+        </div>
         <div className="space-y-1.5 text-[11px] font-mono">
           {[
             ["ADAPTER",         params.adapterId ?? "—"],
@@ -394,7 +407,9 @@ function IntentPanel({
       {/* Rules validation */}
       <div className="px-5 py-4 border-b border-line shrink-0">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">⊙ Validação rules-engine</div>
+          <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">
+            {t("panel.validation_label" as never)}
+          </div>
           {checks.length > 0 && (
             <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${passCount === checks.length ? "text-accent border-accent/25 bg-accent/5" : "text-neg border-neg/25 bg-neg/5"}`}>
               {passCount}/{checks.length} OK
@@ -404,8 +419,8 @@ function IntentPanel({
         {checks.length === 0 ? (
           <p className="text-[11px] text-fg-3 font-mono">
             {!snapshot
-              ? "Sem snapshot — tire um snapshot no Dashboard para validar."
-              : "Sem política ativa — configure uma política na Policy Engine."}
+              ? t("panel.no_snapshot" as never)
+              : t("panel.no_policy" as never)}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -428,7 +443,7 @@ function IntentPanel({
             disabled={loading !== null}
             className="flex-1 py-2 rounded-lg border border-line text-xs text-fg-3 hover:border-neg/40 hover:text-neg disabled:opacity-40 transition-all"
           >
-            {loading === "reject" ? "…" : "Rejeitar"}
+            {loading === "reject" ? t("panel.rejecting" as never) : t("panel.reject" as never)}
           </button>
         )}
         {canApprove && (
@@ -437,7 +452,7 @@ function IntentPanel({
             disabled={loading !== null}
             className="flex-1 py-2 rounded-lg border border-accent/40 text-xs text-accent hover:bg-accent/10 disabled:opacity-40 transition-all"
           >
-            {loading === "approve" ? "Aprovando…" : "Aprovar →"}
+            {loading === "approve" ? t("panel.approving" as never) : t("panel.approve" as never)}
           </button>
         )}
         {canExecute && (
@@ -446,12 +461,12 @@ function IntentPanel({
             disabled={loading !== null}
             className="flex-1 py-2.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-all"
           >
-            {loading === "execute" ? "Executando…" : "✓ Executar →"}
+            {loading === "execute" ? t("panel.executing" as never) : t("panel.execute" as never)}
           </button>
         )}
         {isTerminal && (
           <button onClick={onClose} className="flex-1 py-2.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold hover:opacity-90 transition-all">
-            ✓ Concluído
+            {t("panel.done" as never)}
           </button>
         )}
       </div>
@@ -471,11 +486,51 @@ export function ExecutionDrawer({
   onReject,
   onCreate,
 }: ExecutionDrawerProps) {
+  const t = useTranslations("execution");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
   const [selected, setSelected] = useState<IntentRow | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const confirmed = intents.filter((i) => i.status === "confirmed").length;
   const simulated = intents.filter((i) => i.txSignature?.startsWith("SIM")).length;
+
+  const nowLabel = tCommon("now");
+  const yesterdayLabel = tCommon("yesterday");
+
+  const tableHeaders = [
+    t("table_headers.id" as never),
+    t("table_headers.type" as never),
+    t("table_headers.adapter" as never),
+    t("table_headers.value" as never),
+    t("table_headers.state" as never),
+    t("table_headers.tx" as never),
+    t("table_headers.confirmed" as never),
+  ];
+
+  function displayStatus(intent: IntentRow): { label: string; cls: string } {
+    if (intent.status === "confirmed" && intent.kind === "deposit") {
+      return { label: "ACTIVE", cls: "text-accent border-accent/40 bg-accent/10" };
+    }
+    if (intent.status === "confirmed") {
+      return { label: "CLOSED", cls: "text-fg-3 border-line bg-bg-2" };
+    }
+    if (["rejected", "failed", "expired"].includes(intent.status)) {
+      return { label: intent.status.toUpperCase(), cls: "text-neg border-neg/30 bg-neg/5" };
+    }
+    if (["signing", "broadcast", "queued"].includes(intent.status)) {
+      return { label: intent.status.toUpperCase(), cls: "text-warn border-warn/30 bg-warn/5" };
+    }
+    return { label: intent.status.toUpperCase(), cls: "text-fg-2 border-line" };
+  }
+
+  function displayValue(intent: IntentRow): { text: string; cls: string } {
+    const p = intent.paramsJson as { amountUsd?: number };
+    if (!p.amountUsd) return { text: "—", cls: "text-fg" };
+    const sign = intent.kind === "withdraw" ? "-" : "+";
+    const cls = intent.kind === "withdraw" ? "text-neg" : "text-accent";
+    return { text: `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(p.amountUsd)}`, cls };
+  }
 
   return (
     <div className="flex h-full relative">
@@ -483,20 +538,21 @@ export function ExecutionDrawer({
       <div className={`flex-1 min-w-0 overflow-auto transition-all ${selected ? "lg:mr-105" : ""}`}>
         {/* Table header */}
         <div className="px-4 sm:px-6 py-5">
-          <div className="text-[10px] text-fg-3 font-mono uppercase tracking-wider mb-1">WORKSPACE / EXECUÇÃO</div>
+          <div className="text-[10px] text-fg-3 font-mono uppercase tracking-wider mb-1">
+            {t("breadcrumb" as never)}
+          </div>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-lg font-semibold text-fg mb-1">Intents · State Machine</h1>
+              <h1 className="text-lg font-semibold text-fg mb-1">{t("title" as never)}</h1>
               <p className="text-xs text-fg-3 leading-relaxed max-w-lg">
-                DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRMED.
-                Idempotency key + lock otimista evitam duplo-aprove.
+                {t("description" as never)}
               </p>
             </div>
             <button
               onClick={() => setShowCreate(true)}
               className="shrink-0 px-3 py-1.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold hover:opacity-90 transition-opacity"
             >
-              + Nova intent
+              {t("new_intent_btn" as never)}
             </button>
           </div>
         </div>
@@ -505,28 +561,28 @@ export function ExecutionDrawer({
         <div className="mx-4 sm:mx-6 mb-6 rounded-xl border border-line bg-bg-1 overflow-hidden">
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-fg-3">⚡ Histórico</span>
+              <span className="text-[10px] font-mono text-fg-3">{t("history_label" as never)}</span>
             </div>
             {(confirmed > 0 || simulated > 0) && (
               <span className="text-[10px] font-mono text-fg-3">
-                {confirmed > 0 && `${confirmed} executada${confirmed > 1 ? "s" : ""}`}
+                {confirmed > 0 && `${confirmed} ${confirmed > 1 ? t("executed_suffix_plural" as never) : t("executed_suffix" as never)}`}
                 {confirmed > 0 && simulated > 0 && " · "}
-                {simulated > 0 && `${simulated} simulada${simulated > 1 ? "s" : ""}`}
+                {simulated > 0 && `${simulated} ${simulated > 1 ? t("simulated_suffix_plural" as never) : t("simulated_suffix" as never)}`}
               </span>
             )}
           </div>
 
           {intents.length === 0 ? (
             <div className="px-6 py-12 text-center">
-              <p className="text-xs text-fg-3 font-mono mb-1">Nenhum intent registrado.</p>
-              <p className="text-xs text-fg-3">Use o Simulador para criar recomendações, ou crie manualmente.</p>
+              <p className="text-xs text-fg-3 font-mono mb-1">{t("empty_title" as never)}</p>
+              <p className="text-xs text-fg-3">{t("empty_desc" as never)}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-line">
-                    {["ID", "TIPO", "ADAPTER", "VALOR", "ESTADO", "TX", "CONFIRMADA"].map((h, i) => (
+                    {tableHeaders.map((h, i) => (
                       <th key={h} className={`px-4 py-2.5 text-[10px] font-mono text-fg-3 uppercase tracking-wider ${i === 0 || i === 2 ? "text-left" : i < 3 ? "text-left" : "text-right"}`}>{h}</th>
                     ))}
                   </tr>
@@ -558,7 +614,11 @@ export function ExecutionDrawer({
                           {intent.txSignature ? shortTx(intent.txSignature) : "—"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-[10px] text-fg-3">
-                          {intent.onchainAt ? fmtRelative(intent.onchainAt) : (intent.status === "confirmed" ? fmtRelative(intent.updatedAt) : "—")}
+                          {intent.onchainAt
+                            ? fmtRelative(intent.onchainAt, nowLabel, yesterdayLabel, locale)
+                            : intent.status === "confirmed"
+                            ? fmtRelative(intent.updatedAt, nowLabel, yesterdayLabel, locale)
+                            : "—"}
                         </td>
                       </tr>
                     );

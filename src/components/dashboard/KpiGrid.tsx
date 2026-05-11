@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import type { ProjectionResult } from "@/lib/rules-engine/types";
 
 interface KpiGridProps {
@@ -54,34 +55,35 @@ function KpiCard({
   );
 }
 
-export function KpiGrid({ totalUsd, liquidUsd, projection, policyVersion }: KpiGridProps) {
+export async function KpiGrid({ totalUsd, liquidUsd, projection, policyVersion }: KpiGridProps) {
+  const t = await getTranslations("dashboard.kpi");
   const p = projection;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {/* Row 1 */}
       <KpiCard
-        label="Total Treasury"
+        label={t("total" as never)}
         value={totalUsd !== null ? fmtUSD(totalUsd) : "—"}
         sub="USDC · devnet"
       />
       <KpiCard
-        label="Liquid Runway"
+        label={t("liquid_runway" as never)}
         value={p ? `${p.liquidRunwayMonths.toFixed(1)} mo` : "—"}
-        sub={liquidUsd !== null ? `${fmtUSD(liquidUsd, true)} disponível` : "sem snapshot"}
+        sub={liquidUsd !== null ? `${fmtUSD(liquidUsd, true)} ${t("available" as never)}` : t("no_snapshot_short" as never)}
         accent={!!p && p.liquidRunwayMonths >= 6}
         warn={!!p && p.liquidRunwayMonths >= 3 && p.liquidRunwayMonths < 6}
         neg={!!p && p.liquidRunwayMonths < 3}
       />
       <KpiCard
-        label="Runway protegido"
+        label={t("protected_runway" as never)}
         value={p ? `${p.protectedRunwayMonths.toFixed(1)} mo` : "—"}
-        sub="Reserva + Folha"
+        sub={t("reserve_payroll" as never)}
         accent={!!p && p.protectedRunwayMonths >= 3}
         warn={!!p && p.protectedRunwayMonths < 3}
       />
       <KpiCard
-        label="Capital Deployed"
+        label={t("capital_deployed" as never)}
         value={p ? fmtUSD(p.deployedCapitalUsd) : "—"}
         sub={p ? `${p.deployedPct.toFixed(1)}% · ${p.blendedAprPct.toFixed(2)}% APR` : ""}
         badge={p ? `${p.deployedPct.toFixed(0)}%` : undefined}
@@ -90,28 +92,28 @@ export function KpiGrid({ totalUsd, liquidUsd, projection, policyVersion }: KpiG
 
       {/* Row 2 */}
       <KpiCard
-        label="Yield estimado"
+        label={t("yield_est" as never)}
         value={p ? fmtUSD(p.estimatedYieldYearUsd, true) : "—"}
-        sub="por ano"
+        sub={t("per_year" as never)}
         accent
       />
       <KpiCard
-        label="Próximas obrig."
+        label={t("upcoming_obligations" as never)}
         value={p ? fmtUSD(p.upcomingObligations30dUsd, true) : "—"}
-        sub="em 30 dias"
+        sub={t("in_30_days" as never)}
         warn={!!p && p.upcomingObligations30dUsd > 0}
       />
       <KpiCard
-        label="Concentração"
+        label={t("compliance" as never)}
         value={p ? `${p.topConcentrationPct.toFixed(0)}%` : "—"}
-        sub={p?.topConcentrationProtocol ?? "top protocolo"}
+        sub={p?.topConcentrationProtocol ?? t("top_protocol" as never)}
         warn={!!p && p.topConcentrationPct > 45}
         accent={!!p && p.topConcentrationPct <= 45}
       />
       <KpiCard
-        label="Compliance"
+        label={t("compliance" as never)}
         value={p ? `${p.complianceScore}/100` : "—"}
-        sub={policyVersion !== null ? `política v${policyVersion}` : "sem política"}
+        sub={policyVersion !== null ? t("policy_version" as never, { version: policyVersion } as never) : t("no_policy" as never)}
         accent={!!p && p.complianceScore >= 80}
         warn={!!p && p.complianceScore >= 60 && p.complianceScore < 80}
         neg={!!p && p.complianceScore < 60}

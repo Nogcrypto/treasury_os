@@ -2,59 +2,20 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 
-interface TourStep {
-  href: string;
-  label: string;
-  icon: string;
-  title: string;
-  body: string;
-}
+type StepKey = "dashboard" | "policy" | "copilot" | "simulator" | "execution" | "equity_studio";
 
-const STEPS: TourStep[] = [
-  {
-    href: "/dashboard",
-    label: "Dashboard",
-    icon: "⬡",
-    title: "Cockpit · visão geral do caixa",
-    body: "Painel principal com o estado do caixa em tempo real: total, runway, capital alocado e score de compliance. Cada número responde uma pergunta crítica da tesouraria.",
-  },
-  {
-    href: "/policy",
-    label: "Policy Engine",
-    icon: "⚖",
-    title: "Policy Engine · as regras da casa",
-    body: "Defina a política da tesouraria: runway mínimo, concentração máxima por protocolo e whitelist de ativos. A IA propõe; estas regras validam deterministicamente antes de qualquer execução.",
-  },
-  {
-    href: "/copilot",
-    label: "AI Copilot",
-    icon: "✦",
-    title: "AI Copilot · advisor financeiro",
-    body: "O Copilot analisa o caixa, propõe alocações respeitando a política ativa e explica o raciocínio em linguagem natural. Cada recomendação vira um intent que você aprova.",
-  },
-  {
-    href: "/simulator",
-    label: "Simulador",
-    icon: "◈",
-    title: "Simulador · teste antes de executar",
-    body: "Simule qualquer alocação antes de confirmar. Veja o impacto no runway, yield estimado e compliance da política. Só siga para execução quando os números fizerem sentido.",
-  },
-  {
-    href: "/execution",
-    label: "Execução",
-    icon: "▶",
-    title: "Execução · do intent à blockchain",
-    body: "Intents aprovados viram transações Solana. Depósitos em protocolos de yield, retiradas e rebalanceamentos — tudo auditável com hash onchain e histórico completo.",
-  },
-  {
-    href: "/equity-studio",
-    label: "Equity Studio",
-    icon: "◎",
-    title: "Equity Studio · distribuição para holders",
-    body: "Distribua dividendos em USDC para holders do token da empresa. Configure snapshots de holders, valores e datas de pagamento. Tudo onchain e auditável.",
-  },
-];
+const STEP_HREFS: Record<StepKey, string> = {
+  dashboard: "/dashboard",
+  policy: "/policy",
+  copilot: "/copilot",
+  simulator: "/simulator",
+  execution: "/execution",
+  equity_studio: "/equity-studio",
+};
+
+const STEP_KEYS: StepKey[] = ["dashboard", "policy", "copilot", "simulator", "execution", "equity_studio"];
 
 const STORAGE_KEY = "treasury-os-tour";
 
@@ -77,23 +38,28 @@ function saveTourState(state: TourState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-export function TourButton({ onOpen }: { onOpen: () => void }) {
+export function TourButton({ onOpen, label }: { onOpen: () => void; label: string }) {
   return (
     <button
       onClick={onOpen}
       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-line text-[11px] font-mono text-fg-3 hover:text-fg hover:border-fg-3 transition-all"
     >
-      <span className="text-xs">☆</span> Tour
+      <span className="text-xs">☆</span> {label}
     </button>
   );
 }
 
 export function Tour({ autoStart = false }: { autoStart?: boolean }) {
+  const t = useTranslations("tour");
+  const tNav = useTranslations("nav");
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [navigating, setNavigating] = useState(false);
+
+  const currentKey = STEP_KEYS[step];
+  const currentHref = STEP_HREFS[currentKey];
 
   // Auto-start on first visit for demo users
   useEffect(() => {
@@ -102,7 +68,7 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
     if (!state.done) {
       setStep(state.step);
       setOpen(true);
-      const targetHref = STEPS[state.step]?.href;
+      const targetHref = STEP_HREFS[STEP_KEYS[state.step]];
       if (targetHref && pathname !== targetHref) {
         setNavigating(true);
         router.push(targetHref);
@@ -114,10 +80,10 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
 
   // Clear navigating flag once we arrive at the target page
   useEffect(() => {
-    if (navigating && pathname === STEPS[step]?.href) {
+    if (navigating && pathname === currentHref) {
       setNavigating(false);
     }
-  }, [pathname, navigating, step]);
+  }, [pathname, navigating, currentHref]);
 
   // Persist step whenever it changes while tour is open
   useEffect(() => {
@@ -129,7 +95,7 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
     const resumeStep = state.done ? 0 : state.step;
     setStep(resumeStep);
     setOpen(true);
-    const targetHref = STEPS[resumeStep]?.href;
+    const targetHref = STEP_HREFS[STEP_KEYS[resumeStep]];
     if (targetHref && pathname !== targetHref) {
       setNavigating(true);
       router.push(targetHref);
@@ -137,15 +103,16 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
   }
 
   function handleNext() {
-    if (step === STEPS.length - 1) {
+    if (step === STEP_KEYS.length - 1) {
       handleFinish();
       return;
     }
     const nextStep = step + 1;
     setStep(nextStep);
-    if (pathname !== STEPS[nextStep].href) {
+    const nextHref = STEP_HREFS[STEP_KEYS[nextStep]];
+    if (pathname !== nextHref) {
       setNavigating(true);
-      router.push(STEPS[nextStep].href);
+      router.push(nextHref);
     }
   }
 
@@ -153,9 +120,10 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
     if (step === 0) return;
     const prevStep = step - 1;
     setStep(prevStep);
-    if (pathname !== STEPS[prevStep].href) {
+    const prevHref = STEP_HREFS[STEP_KEYS[prevStep]];
+    if (pathname !== prevHref) {
       setNavigating(true);
-      router.push(STEPS[prevStep].href);
+      router.push(prevHref);
     }
   }
 
@@ -169,17 +137,18 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
     setOpen(false);
   }
 
+  const tourBtnLabel = tNav("tour_btn");
+
   if (!open) {
-    return <TourButton onOpen={handleOpen} />;
+    return <TourButton onOpen={handleOpen} label={tourBtnLabel} />;
   }
 
-  const current = STEPS[step];
-  const isLast = step === STEPS.length - 1;
-  const nextStep = STEPS[step + 1];
+  const isLast = step === STEP_KEYS.length - 1;
+  const nextKey = STEP_KEYS[step + 1];
 
   return (
     <>
-      <TourButton onOpen={handleOpen} />
+      <TourButton onOpen={handleOpen} label={tourBtnLabel} />
 
       {/* Subtle backdrop — pointer-events-none so page stays interactive */}
       <div className="fixed inset-0 z-40 pointer-events-none bg-black/25" />
@@ -190,22 +159,22 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
           {/* Step header */}
           <div className="flex items-center gap-2 mb-3">
             <span className="text-[10px] font-mono text-accent tracking-widest uppercase">
-              Tour · {step + 1}/{STEPS.length}
+              {t("label", { step: step + 1, total: STEP_KEYS.length })}
             </span>
             <span className="text-[10px] text-fg-3">·</span>
             <span className="text-[10px] font-mono text-accent/80">
-              {current.icon} {current.label}
+              {t(`steps.${currentKey}.icon` as never)} {t(`steps.${currentKey}.label` as never)}
             </span>
             {navigating && (
               <span className="ml-auto text-[10px] font-mono text-fg-3 animate-pulse">
-                navegando…
+                {t("navigating")}
               </span>
             )}
           </div>
 
           {/* Progress bar */}
           <div className="flex gap-1 mb-4">
-            {STEPS.map((_, i) => (
+            {STEP_KEYS.map((_, i) => (
               <div
                 key={i}
                 className={`h-1 flex-1 rounded-full transition-all duration-300 ${
@@ -216,14 +185,18 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
           </div>
 
           {/* Content */}
-          <h3 className="text-sm font-bold text-fg mb-2 leading-snug">{current.title}</h3>
-          <p className="text-xs text-fg-2 leading-relaxed mb-4">{current.body}</p>
+          <h3 className="text-sm font-bold text-fg mb-2 leading-snug">
+            {t(`steps.${currentKey}.title` as never)}
+          </h3>
+          <p className="text-xs text-fg-2 leading-relaxed mb-4">
+            {t(`steps.${currentKey}.body` as never)}
+          </p>
 
           {/* Page chips — shows overall journey */}
           <div className="flex flex-wrap gap-1 mb-5">
-            {STEPS.map((s, i) => (
+            {STEP_KEYS.map((key, i) => (
               <span
-                key={i}
+                key={key}
                 className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition-all ${
                   i === step
                     ? "bg-accent/15 text-accent border-accent/40"
@@ -232,7 +205,7 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
                     : "text-fg-3/30 border-line/30"
                 }`}
               >
-                {s.icon} {s.label}
+                {t(`steps.${key}.icon` as never)} {t(`steps.${key}.label` as never)}
               </span>
             ))}
           </div>
@@ -243,7 +216,7 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
               onClick={handleSkip}
               className="text-[11px] text-fg-3 hover:text-fg transition-colors"
             >
-              Pular tour
+              {t("skip")}
             </button>
             <div className="flex gap-2">
               {step > 0 && (
@@ -252,7 +225,7 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
                   disabled={navigating}
                   className="text-[11px] text-fg-3 border border-line px-3 py-1.5 rounded-lg hover:border-fg-3 transition-all disabled:opacity-40"
                 >
-                  ← Voltar
+                  {t("back")}
                 </button>
               )}
               <button
@@ -261,10 +234,10 @@ export function Tour({ autoStart = false }: { autoStart?: boolean }) {
                 className="text-[11px] font-medium border border-accent/50 bg-accent/10 text-accent px-4 py-1.5 rounded-lg hover:bg-accent/20 transition-all disabled:opacity-40"
               >
                 {isLast
-                  ? "Concluir ✓"
+                  ? t("finish")
                   : navigating
-                  ? "Navegando…"
-                  : `${nextStep.icon} ${nextStep.label} →`}
+                  ? t("navigating_btn")
+                  : `${t(`steps.${nextKey}.icon` as never)} ${t(`steps.${nextKey}.label` as never)} →`}
               </button>
             </div>
           </div>

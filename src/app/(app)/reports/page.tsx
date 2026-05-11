@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
 import { memberships, snapshots, policies, buckets, obligations, auditLog, events } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { getTranslations, getLocale } from "next-intl/server";
 import { projectRunway } from "@/lib/rules-engine/projections";
 import { parsePolicy, POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import type { TreasurySnapshot, Policy } from "@/lib/rules-engine/types";
@@ -93,9 +94,13 @@ export default async function ReportsPage() {
 
   const projection = projectRunway(snap, policy);
 
+  const t = await getTranslations("reports");
+  const locale = await getLocale();
+  const dateLocale = locale === "en" ? "en-US" : "pt-BR";
+
   const pdfData = {
     orgName: membership.org.name,
-    reportDate: new Date().toLocaleDateString("pt-BR"),
+    reportDate: new Date().toLocaleDateString(dateLocale),
     totalUsd: snap.totalUsd,
     liquidUsd: snap.liquidUsd,
     runwayMonths: projection.liquidRunwayMonths,
@@ -122,15 +127,15 @@ export default async function ReportsPage() {
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-8">
         <div className="text-xs text-fg-3 font-mono tracking-wider uppercase mb-1">
-          {membership.org.name} / Relatórios
+          {membership.org.name} / {t("decision_log_title" as never)}
         </div>
-        <h1 className="text-xl font-semibold text-fg">Relatórios & Decision Log</h1>
+        <h1 className="text-xl font-semibold text-fg">{t("title" as never)}</h1>
       </div>
 
       {/* Executive summary + PDF export */}
       <div className="rounded-xl border border-line bg-bg-1 p-5 mb-6">
         <div className="text-xs font-mono text-fg-3 uppercase tracking-wider mb-4">
-          Resumo executivo
+          {t("executive_summary_title" as never)}
         </div>
         <ReportsClient pdfData={pdfData} />
       </div>
@@ -139,14 +144,16 @@ export default async function ReportsPage() {
       <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
         <div className="px-5 py-3 border-b border-line flex items-center justify-between">
           <div className="text-xs font-mono text-fg-3 uppercase tracking-wider">
-            Decision Log
+            {t("decision_log_title" as never)}
           </div>
-          <div className="text-xs text-fg-3 font-mono">{timeline.length} entradas</div>
+          <div className="text-xs text-fg-3 font-mono">
+            {t("entries_count" as never, { count: timeline.length } as never)}
+          </div>
         </div>
 
         {timeline.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-fg-3">
-            Nenhuma ação registrada ainda.
+            {t("empty_log" as never)}
           </div>
         ) : (
           <div className="divide-y divide-line">
@@ -171,8 +178,8 @@ export default async function ReportsPage() {
                   )}
                 </div>
                 <div className="text-xs text-fg-3 font-mono shrink-0 whitespace-nowrap">
-                  {entry.at.toLocaleDateString("pt-BR")}{" "}
-                  {entry.at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  {entry.at.toLocaleDateString(dateLocale)}{" "}
+                  {entry.at.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}
                 </div>
               </div>
             ))}

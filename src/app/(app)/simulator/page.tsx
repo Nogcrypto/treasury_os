@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { memberships, snapshots, policies, obligations, buckets } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import { parsePolicy, POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import { Simulator } from "@/components/Simulator";
 import { isDemoUser, getDemoSnapshot, getDemoPolicy } from "@/lib/demo";
@@ -45,13 +46,14 @@ export default async function SimulatorPage() {
   ]);
 
   if (!latestSnapshot) {
+    const t = await getTranslations("simulator");
     return (
       <div className="flex flex-col h-full items-center justify-center">
         <div className="text-center max-w-sm">
-          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-3">WORKSPACE / SIMULADOR</div>
-          <h1 className="text-base font-semibold text-fg mb-2">Sem dados de snapshot</h1>
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-3">{t("breadcrumb" as never)}</div>
+          <h1 className="text-base font-semibold text-fg mb-2">{t("no_snapshot_title" as never)}</h1>
           <p className="text-xs text-fg-3">
-            Tire um snapshot no dashboard antes de simular cenários.
+            {t("no_snapshot_desc" as never)}
           </p>
         </div>
       </div>

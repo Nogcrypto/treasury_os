@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
 import { memberships, snapshots, policies, buckets, obligations } from "@/lib/db/schema";
@@ -36,6 +37,7 @@ export default async function DashboardPage() {
     return <OnboardingPrompt />;
   }
 
+  const tBuckets = await getTranslations("dashboard.buckets");
   const orgId = membership.orgId;
 
   const [latestSnapshot, activePolicy, orgBuckets, orgObligations] = await Promise.all([
@@ -73,7 +75,7 @@ export default async function DashboardPage() {
   const bucketRows = orgBuckets.map((b, i) => ({
     id: b.id ?? `b-${i}`,
     kind: b.kind,
-    label: BUCKET_LABELS[b.kind] ?? b.kind,
+    label: tBuckets(b.kind as never) ?? b.kind,
     targetAmountCents: b.targetAmountCents,
     currency: b.currency,
     balanceUsd: 0,
@@ -115,7 +117,7 @@ export default async function DashboardPage() {
 
 // ── Shared layout (real + demo) ───────────────────────────────────────────────
 
-function DashboardLayout({
+async function DashboardLayout({
   orgName,
   snapshotAge,
   alerts,
@@ -144,26 +146,31 @@ function DashboardLayout({
   snapBuckets?: TreasurySnapshot["buckets"];
   isDemo?: boolean;
 }) {
+  const t = await getTranslations("dashboard.page");
+  const tBuckets = await getTranslations("dashboard.buckets");
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-5 gap-3">
         <div>
           <div className="text-[10px] text-fg-3 font-mono tracking-wider uppercase mb-0.5">
-            Workspace / Dashboard
+            WORKSPACE / DASHBOARD
           </div>
           <h1 className="text-lg font-semibold text-fg">
             Cockpit · <span className="text-fg-3 font-normal">{orgName}</span>
           </h1>
           <p className="text-xs text-fg-3 mt-0.5">
-            Snapshot atualizado a cada 5 min via Helius webhooks.
-            {policyVersion ? ` Política Balanced v${policyVersion} ativa.` : ""}
+            {t("snapshot_desc" as never)}
+            {policyVersion ? ` ${t("policy_active" as never, { version: policyVersion } as never)}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {snapshotAge !== null && (
             <span className="text-[10px] text-fg-3 font-mono">
-              snapshot há {snapshotAge === 0 ? "<1" : snapshotAge}min
+              {snapshotAge === 0
+                ? t("snapshot_now" as never)
+                : t("snapshot_age" as never, { min: snapshotAge } as never)}
             </span>
           )}
           <SnapshotButton />
@@ -198,8 +205,10 @@ function DashboardLayout({
       {/* No snapshot yet */}
       {totalUsd === null && (
         <div className="rounded-xl border border-line bg-bg-1 p-8 text-center text-fg-3 text-sm mb-5">
-          <p className="font-mono text-xs tracking-wider uppercase mb-2">Aguardando snapshot</p>
-          <p className="mb-4">Conecte sua wallet e clique em Snapshot para carregar os dados.</p>
+          <p className="font-mono text-xs tracking-wider uppercase mb-2">
+            {t("no_snapshot_title" as never)}
+          </p>
+          <p className="mb-4">{t("no_snapshot_desc" as never)}</p>
         </div>
       )}
 
@@ -210,7 +219,7 @@ function DashboardLayout({
           {bucketRows.length > 0 && (
             <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
               <div className="px-4 py-3 border-b border-line text-[10px] font-mono text-fg-3 uppercase tracking-wider">
-                Buckets de Alocação
+                {t("buckets_label" as never)}
               </div>
               <div className="divide-y divide-line">
                 {bucketRows.map((b) => (
@@ -223,7 +232,7 @@ function DashboardLayout({
           {positions.length > 0 && (
             <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
               <div className="px-4 py-3 border-b border-line text-[10px] font-mono text-fg-3 uppercase tracking-wider">
-                Posições Alocadas
+                {t("positions_label" as never)}
               </div>
               <PositionsTable positions={positions} />
             </div>
@@ -255,13 +264,14 @@ function DashboardLayout({
 
 // ── Demo dashboard ────────────────────────────────────────────────────────────
 
-function DemoDashboard() {
+async function DemoDashboard() {
+  const tBuckets = await getTranslations("dashboard.buckets");
   const { snap, projection, alerts, totals, positions, snapshotAge, orgName } = getDemoDashboardData();
 
   const demoBuckets = snap.buckets.map((b, i) => ({
     id: `demo-b-${i}`,
     kind: b.kind,
-    label: BUCKET_LABELS[b.kind] ?? b.kind,
+    label: tBuckets(b.kind as never) ?? b.kind,
     targetAmountCents: b.targetUsd * 100,
     currency: "USD",
     balanceUsd: b.balanceUsd,
@@ -296,22 +306,14 @@ function DemoDashboard() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-const BUCKET_LABELS: Record<string, string> = {
-  operating: "Operacional",
-  payroll: "Folha",
-  tax: "Impostos",
-  emergency: "Reserva",
-  yield: "Excedente",
-  custom: "Outros",
-};
-
-function OnboardingPrompt() {
+async function OnboardingPrompt() {
+  const t = await getTranslations("dashboard.page");
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-center max-w-sm">
-        <div className="text-sm text-fg-2 mb-4">Você ainda não tem uma organização.</div>
+        <div className="text-sm text-fg-2 mb-4">{t("no_org" as never)}</div>
         <a href="/setup" className="text-sm text-accent hover:underline">
-          Iniciar onboarding →
+          {t("no_org_onboard" as never)}
         </a>
       </div>
     </div>

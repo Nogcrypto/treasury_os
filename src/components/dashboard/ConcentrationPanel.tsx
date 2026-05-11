@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 interface ConcentrationPanelProps {
   totalUsd: number;
   liquidUsd: number;
@@ -15,10 +17,9 @@ const SEGMENT_COLORS: Record<string, string> = {
   liquid:               "oklch(0.82 0.18 148)",
 };
 
-const SEGMENT_LABELS: Record<string, string> = {
+const SEGMENT_PROTOCOL_LABELS: Record<string, string> = {
   "kamino-usdc-devnet": "Kamino USDC",
   "mock-rwa-usdy":      "Mock RWA",
-  liquid:               "USDC livre",
 };
 
 function fmtUSD(n: number) {
@@ -30,9 +31,11 @@ function fmtUSD(n: number) {
 function DonutChart({
   slices,
   totalUsd,
+  totalLabel,
 }: {
   slices: { pct: number; color: string }[];
   totalUsd: number;
+  totalLabel: string;
 }) {
   let cumulative = 0;
   const cx = 56, cy = 56, r = 40, strokeWidth = 14;
@@ -82,7 +85,7 @@ function DonutChart({
         fontSize="8"
         fontFamily="monospace"
       >
-        total
+        {totalLabel}
       </text>
     </svg>
   );
@@ -145,6 +148,11 @@ export function ConcentrationPanel({
   policyVersion,
   concentrationLimit,
 }: ConcentrationPanelProps) {
+  const t = useTranslations("dashboard.concentration");
+  const tExtra = useTranslations("dashboard.concentration_extra");
+
+  const liquidLabel = tExtra("usdc_free" as never);
+
   const allSlices = [
     { key: "liquid", amount: liquidUsd },
     ...positions.map((p) => ({ key: p.adapterId, amount: p.amountUsd })),
@@ -153,7 +161,7 @@ export function ConcentrationPanel({
   const slices = allSlices.map((s) => ({
     pct: (s.amount / total) * 100,
     color: SEGMENT_COLORS[s.key] ?? "oklch(0.48 0.012 240)",
-    label: SEGMENT_LABELS[s.key] ?? s.key,
+    label: s.key === "liquid" ? liquidLabel : (SEGMENT_PROTOCOL_LABELS[s.key] ?? s.key),
     amount: s.amount,
   }));
 
@@ -163,17 +171,21 @@ export function ConcentrationPanel({
       <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-fg-3">◎</span>
-          <span className="text-xs font-medium text-fg">Concentração</span>
+          <span className="text-xs font-medium text-fg">{t("title" as never)}</span>
         </div>
         {concentrationLimit != null && (
-          <span className="text-[10px] font-mono text-fg-3">LIMITE {concentrationLimit}%</span>
+          <span className="text-[10px] font-mono text-fg-3">{t("limit" as never)} {concentrationLimit}%</span>
         )}
       </div>
 
       {/* Donut + Legend */}
       <div className="p-4 flex gap-4 items-start">
         <div className="shrink-0">
-          <DonutChart slices={slices} totalUsd={totalUsd} />
+          <DonutChart
+            slices={slices}
+            totalUsd={totalUsd}
+            totalLabel={tExtra("total_label" as never)}
+          />
         </div>
         <div className="flex-1 min-w-0 space-y-2.5 pt-1">
           {slices.map((s) => (
@@ -198,10 +210,10 @@ export function ConcentrationPanel({
       <div className="px-4 pb-4 border-t border-line pt-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">
-            Compliance Score
+            {tExtra("compliance_label" as never)}
           </span>
           <span className="text-[10px] font-mono text-fg-3">
-            política v{policyVersion ?? 1}
+            {tExtra("policy_label" as never, { version: policyVersion ?? 1 } as never)}
           </span>
         </div>
         <div className="flex items-center justify-center">

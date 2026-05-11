@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { POLICY_PRESETS } from "@/lib/rules-engine/policy";
 import type { PolicyRule, RuleId } from "@/lib/rules-engine/types";
 import { saveAndActivate, policyFromDescription } from "@/app/(app)/policy/actions";
@@ -18,14 +19,13 @@ type PolicyVersion = {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const RULE_META: Record<RuleId, { label: string; desc: string; key: string }> = {
-  MIN_RUNWAY_DAYS:       { label: "Runway mínimo protegido",        desc: "dias de operação cobertos por reserva",       key: "MIN_RUNWAY_DAYS" },
-  MAX_CONCENTRATION_PCT: { label: "Concentração máxima por protocolo", desc: "exposição máxima a um adapter",            key: "MAX_CONCENTRATION_PCT" },
-  MIN_LIQUID_PCT:        { label: "Mínimo líquido",                 desc: "% mantido em USDC sem lock-up",              key: "MIN_LIQUID_PCT" },
-  BUCKET_TARGET:         { label: "Metas por bucket",               desc: "operating, payroll, tax, emergency",         key: "BUCKET_TARGET" },
-  ALLOCATION_WHITELIST:  { label: "Whitelist de adapters",          desc: "protocolos permitidos para alocação",        key: "ALLOCATION_WHITELIST" },
-  YIELD_ONLY_EXCESS:     { label: "Yield apenas no excedente",      desc: "buckets protegidos não rendem",              key: "YIELD_ONLY_EXCESS" },
-  REBALANCE_TRIGGER:     { label: "Trigger de rebalance",           desc: "% de desvio que dispara recomendação",       key: "REBALANCE_TRIGGER" },
+const PRESET_KEYS = ["conservative", "balanced", "aggressive"] as const;
+type PresetKey = typeof PRESET_KEYS[number];
+
+const PRESET_ICONS: Record<PresetKey, string> = {
+  conservative: "○",
+  balanced: "◎",
+  aggressive: "◇",
 };
 
 const ADAPTER_OPTIONS = [
@@ -33,93 +33,20 @@ const ADAPTER_OPTIONS = [
   { id: "mock-rwa-usdy",      label: "Mock RWA USDY (T2)" },
 ];
 
-const PRESET_CARDS = [
-  {
-    value: "conservative" as const,
-    label: "Conservadora",
-    icon: "○",
-    description: "4 meses protegidos. 30% máx por protocolo. Apenas excedente alocável.",
-    metrics: [
-      { label: "runway min.",   value: "4 meses" },
-      { label: "conc. máx.",    value: "30%" },
-      { label: "líquido min.",  value: "70%" },
-      { label: "whitelist",     value: "1 adapter" },
-    ],
-  },
-  {
-    value: "balanced" as const,
-    label: "Balanceada",
-    icon: "◎",
-    description: "3 meses protegidos. 45% máx por protocolo. Yield em 2 níveis.",
-    metrics: [
-      { label: "runway min.",   value: "3 meses" },
-      { label: "conc. máx.",    value: "45%" },
-      { label: "líquido mín.",  value: "50%" },
-      { label: "whitelist",     value: "2 adapters" },
-    ],
-  },
-  {
-    value: "aggressive" as const,
-    label: "Agressiva",
-    icon: "◇",
-    description: "2 meses protegidos. 60% máx por protocolo. Inclui RWA tier 2.",
-    metrics: [
-      { label: "runway min.",   value: "2 meses" },
-      { label: "conc. máx.",    value: "60%" },
-      { label: "líquido mín.",  value: "35%" },
-      { label: "whitelist",     value: "2 adapters" },
-    ],
-  },
-];
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getRuleValue(rule: PolicyRule): string {
-  switch (rule.id) {
-    case "MIN_RUNWAY_DAYS": {
-      const days = Number(rule.params.days ?? 90);
-      return `${days} dias`;
-    }
-    case "MAX_CONCENTRATION_PCT":
-      return `${rule.params.pct}%`;
-    case "MIN_LIQUID_PCT":
-      return `${rule.params.pct}%`;
-    case "BUCKET_TARGET":
-      return "5 ativos";
-    case "ALLOCATION_WHITELIST": {
-      const adapters = (rule.params.adapters as string[]) ?? [];
-      if (adapters.length === 0) return "nenhum";
-      return adapters
-        .map((a) => (a.includes("kamino") ? "Kamino" : "USDY"))
-        .join(", ");
-    }
-    case "YIELD_ONLY_EXCESS":
-      return rule.enabled ? "ativo" : "inativo";
-    case "REBALANCE_TRIGGER":
-      return `${rule.params.deviationPct}%`;
-    default:
-      return "—";
-  }
-}
-
-function formatVersionDate(isoDate: string | null): string {
+function formatVersionDate(isoDate: string | null, todayLabel: string, locale: string): string {
   if (!isoDate) return "—";
   const date = new Date(isoDate);
   const now = new Date();
   const hh = date.getHours().toString().padStart(2, "0");
   const mm = date.getMinutes().toString().padStart(2, "0");
-  if (date.toDateString() === now.toDateString()) return `hoje ${hh}:${mm}`;
+  if (date.toDateString() === now.toDateString()) return `${todayLabel} ${hh}:${mm}`;
+  const fmtLocale = locale === "en" ? "en-US" : "pt-BR";
   return (
-    date.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }) +
+    date.toLocaleDateString(fmtLocale, { day: "numeric", month: "short" }) +
     ` ${hh}:${mm}`
   );
-}
-
-function presetDisplayName(preset: string): string {
-  return preset === "conservative" ? "Conservadora"
-       : preset === "balanced"     ? "Balanceada"
-       : preset === "aggressive"   ? "Agressiva"
-       : preset.charAt(0).toUpperCase() + preset.slice(1);
 }
 
 // ── Param editor ──────────────────────────────────────────────────────────────
@@ -127,9 +54,13 @@ function presetDisplayName(preset: string): string {
 function ParamEditor({
   rule,
   onChange,
+  paramLabel,
+  daysUnit,
 }: {
   rule: PolicyRule;
   onChange: (params: Record<string, unknown>) => void;
+  paramLabel: string;
+  daysUnit?: string;
 }) {
   switch (rule.id) {
     case "MIN_RUNWAY_DAYS": {
@@ -137,7 +68,8 @@ function ParamEditor({
       return (
         <div className="mt-3 space-y-1.5">
           <div className="flex justify-between text-xs text-fg-3 font-mono">
-            <span>runway mínimo</span><span className="text-fg-2">{days} dias</span>
+            <span>{paramLabel}</span>
+            <span className="text-fg-2">{days} {daysUnit}</span>
           </div>
           <input
             type="range" min={30} max={365} step={15} value={days}
@@ -153,7 +85,7 @@ function ParamEditor({
       return (
         <div className="mt-3 space-y-1.5">
           <div className="flex justify-between text-xs text-fg-3 font-mono">
-            <span>concentração máxima</span><span className="text-fg-2">{pct}%</span>
+            <span>{paramLabel}</span><span className="text-fg-2">{pct}%</span>
           </div>
           <input
             type="range" min={10} max={80} step={5} value={pct}
@@ -169,7 +101,7 @@ function ParamEditor({
       return (
         <div className="mt-3 space-y-1.5">
           <div className="flex justify-between text-xs text-fg-3 font-mono">
-            <span>liquidez mínima</span><span className="text-fg-2">{pct}%</span>
+            <span>{paramLabel}</span><span className="text-fg-2">{pct}%</span>
           </div>
           <input
             type="range" min={10} max={90} step={5} value={pct}
@@ -185,7 +117,7 @@ function ParamEditor({
       return (
         <div className="mt-3 space-y-1.5">
           <div className="flex justify-between text-xs text-fg-3 font-mono">
-            <span>desvio para trigger</span><span className="text-fg-2">{dev}%</span>
+            <span>{paramLabel}</span><span className="text-fg-2">{dev}%</span>
           </div>
           <input
             type="range" min={3} max={25} step={1} value={dev}
@@ -240,6 +172,10 @@ export function PolicyBuilder({
   activeVersion,
   versions,
 }: PolicyBuilderProps) {
+  const t = useTranslations("policy");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
+
   const [selectedPreset, setSelectedPreset] = useState(activePreset);
   const [rules, setRules] = useState<PolicyRule[]>(activeRules);
   const [expandedRule, setExpandedRule] = useState<RuleId | null>(null);
@@ -251,7 +187,37 @@ export function PolicyBuilder({
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  function applyPreset(preset: "conservative" | "balanced" | "aggressive") {
+  function getRuleValue(rule: PolicyRule): string {
+    switch (rule.id) {
+      case "MIN_RUNWAY_DAYS": {
+        const days = Number(rule.params.days ?? 90);
+        return `${days} ${tCommon("days")}`;
+      }
+      case "MAX_CONCENTRATION_PCT":
+        return `${rule.params.pct}%`;
+      case "MIN_LIQUID_PCT":
+        return `${rule.params.pct}%`;
+      case "BUCKET_TARGET":
+        return t("rule_values.assets" as never);
+      case "ALLOCATION_WHITELIST": {
+        const adapters = (rule.params.adapters as string[]) ?? [];
+        if (adapters.length === 0) return t("rule_values.none" as never);
+        return adapters
+          .map((a) => (a.includes("kamino") ? "Kamino" : "USDY"))
+          .join(", ");
+      }
+      case "YIELD_ONLY_EXCESS":
+        return rule.enabled
+          ? t("rule_values.active" as never)
+          : t("rule_values.inactive" as never);
+      case "REBALANCE_TRIGGER":
+        return `${rule.params.deviationPct}%`;
+      default:
+        return "—";
+    }
+  }
+
+  function applyPreset(preset: PresetKey) {
     setSelectedPreset(preset);
     setRules(POLICY_PRESETS[preset].rules as PolicyRule[]);
     setExpandedRule(null);
@@ -280,7 +246,7 @@ export function PolicyBuilder({
     setSuccess(false);
     startTransition(async () => {
       const result = await saveAndActivate(selectedPreset, rules);
-      if (!result.ok) return setError(result.error ?? "Erro ao salvar.");
+      if (!result.ok) return setError(result.error ?? t("error_save" as never));
       setIsDirty(false);
       setSuccess(true);
     });
@@ -293,7 +259,7 @@ export function PolicyBuilder({
     try {
       const result = await policyFromDescription(aiDescription);
       if (!result.ok || !result.rules) {
-        setAiError(result.error ?? "Falha ao gerar.");
+        setAiError(result.error ?? t("ai_error" as never));
         return;
       }
       setRules(result.rules);
@@ -307,25 +273,28 @@ export function PolicyBuilder({
     }
   }
 
-  const presetLabel = presetDisplayName(selectedPreset);
+  const presetLabel = t(`presets.${selectedPreset}.label` as never);
 
   return (
     <div className="flex flex-col">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="px-6 pt-5 pb-4 border-b border-line">
         <div className="text-[10px] font-mono text-fg-3 tracking-widest uppercase mb-1">
-          Workspace / Policy Engine
+          {t("breadcrumb" as never)}
         </div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-lg font-semibold text-fg leading-tight">
-              Policy v{activeVersion}
+              {t("title_prefix" as never)}{activeVersion}
               <span className="text-fg-3 font-normal"> · {presetLabel}</span>
-              {isDirty && <span className="ml-2 text-xs text-warn font-mono">· modificado</span>}
+              {isDirty && (
+                <span className="ml-2 text-xs text-warn font-mono">
+                  {t("modified" as never)}
+                </span>
+              )}
             </h1>
             <p className="text-xs text-fg-3 mt-0.5 max-w-xl">
-              A IA propõe e explica. O rules-engine determinístico valida antes de virar intent.
-              Mudanças geram nova versão com diff e audit trail.
+              {t("description" as never)}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -333,13 +302,13 @@ export function PolicyBuilder({
               type="button"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs text-fg-3 hover:border-fg-3 transition-all font-mono"
             >
-              <span>□</span> Versões ({versions.length})
+              <span>□</span> {t("versions_title" as never)} ({versions.length})
             </button>
             <button
               type="button"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs text-fg-3 hover:border-fg-3 transition-all"
             >
-              ✎ Editar via texto
+              {t("edit_text_btn" as never)}
             </button>
             <button
               type="button"
@@ -350,12 +319,12 @@ export function PolicyBuilder({
               {isPending ? (
                 <>
                   <span className="inline-block w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
-                  Salvando…
+                  {t("saving" as never)}
                 </>
               ) : success ? (
-                "✓ Ativada"
+                t("activated" as never)
               ) : (
-                "✓ Ativar policy"
+                t("save_activate" as never)
               )}
             </button>
           </div>
@@ -370,17 +339,23 @@ export function PolicyBuilder({
           {/* ── Presets ──────────────────────────────────────────────── */}
           <div>
             <div className="text-[10px] font-mono text-fg-3 tracking-widest uppercase mb-3">
-              Presets
+              {t("presets_label" as never)}
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {PRESET_CARDS.map((p) => {
-                const isActive = activePreset === p.value;
-                const isSelected = selectedPreset === p.value;
+              {PRESET_KEYS.map((presetKey) => {
+                const isActive = activePreset === presetKey;
+                const isSelected = selectedPreset === presetKey;
+                const metrics = [
+                  { label: t(`presets.${presetKey}.runway_label` as never), value: t(`presets.${presetKey}.runway_value` as never) },
+                  { label: t(`presets.${presetKey}.conc_label` as never),   value: t(`presets.${presetKey}.conc_value` as never) },
+                  { label: t(`presets.${presetKey}.liquid_label` as never), value: t(`presets.${presetKey}.liquid_value` as never) },
+                  { label: t(`presets.${presetKey}.whitelist_label` as never), value: t(`presets.${presetKey}.whitelist_value` as never) },
+                ];
                 return (
                   <button
-                    key={p.value}
+                    key={presetKey}
                     type="button"
-                    onClick={() => applyPreset(p.value)}
+                    onClick={() => applyPreset(presetKey)}
                     className={`text-left rounded-xl border p-4 transition-all ${
                       isSelected
                         ? "border-accent bg-accent/5"
@@ -390,21 +365,23 @@ export function PolicyBuilder({
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm ${isSelected ? "text-accent" : "text-fg-3"}`}>
-                          {p.icon}
+                          {PRESET_ICONS[presetKey]}
                         </span>
                         <span className={`text-sm font-semibold ${isSelected ? "text-fg" : "text-fg-2"}`}>
-                          {p.label}
+                          {t(`presets.${presetKey}.label` as never)}
                         </span>
                       </div>
                       {isActive && (
                         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-accent/40 text-accent bg-accent/5">
-                          ATIVA
+                          {t("preset_active_badge" as never)}
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-fg-3 mb-3 leading-relaxed">{p.description}</p>
+                    <p className="text-[11px] text-fg-3 mb-3 leading-relaxed">
+                      {t(`presets.${presetKey}.description` as never)}
+                    </p>
                     <div className="space-y-1">
-                      {p.metrics.map((m) => (
+                      {metrics.map((m) => (
                         <div key={m.label} className="flex items-center justify-between">
                           <span className="text-[10px] text-fg-3 font-mono">{m.label}</span>
                           <span className={`text-[10px] font-mono font-medium ${isSelected ? "text-fg-2" : "text-fg-3"}`}>
@@ -426,15 +403,14 @@ export function PolicyBuilder({
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-mono text-fg-3 tracking-widest uppercase">
-                  Regras primitivas
+                  {t("rules_label" as never)}
                 </span>
                 <span className="text-[10px] font-mono text-fg-3">
-                  {rules.length} TIPOS · ZOD-VALIDATED
+                  {rules.length} {t("rules_validated" as never)}
                 </span>
               </div>
               <div className="rounded-xl border border-line overflow-hidden divide-y divide-line">
                 {rules.map((rule) => {
-                  const meta = RULE_META[rule.id];
                   const isExpanded = expandedRule === rule.id;
                   const hasParams = [
                     "MIN_RUNWAY_DAYS",
@@ -452,7 +428,7 @@ export function PolicyBuilder({
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {/* Checkbox (visual only, rule toggle is the actual control) */}
+                        {/* Toggle indicator */}
                         <div
                           className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center ${
                             rule.enabled
@@ -472,10 +448,10 @@ export function PolicyBuilder({
                           className={`flex-1 min-w-0 text-left ${hasParams ? "cursor-pointer" : "cursor-default"}`}
                         >
                           <div className={`text-sm font-medium leading-tight ${rule.enabled ? "text-fg" : "text-fg-3"}`}>
-                            {meta?.label ?? rule.id}
+                            {t(`rules.${rule.id}.label` as never)}
                           </div>
                           <div className="text-[10px] text-fg-3 font-mono mt-0.5">
-                            {meta?.desc} · {meta?.key}
+                            {t(`rules.${rule.id}.desc` as never)} · {rule.id}
                           </div>
                         </button>
 
@@ -503,7 +479,12 @@ export function PolicyBuilder({
                       {/* Expanded param editor */}
                       {isExpanded && hasParams && (
                         <div className="mt-1 pl-7">
-                          <ParamEditor rule={rule} onChange={(p) => updateParams(rule.id, p)} />
+                          <ParamEditor
+                            rule={rule}
+                            onChange={(p) => updateParams(rule.id, p)}
+                            paramLabel={t(`rules.${rule.id}.param_label` as never)}
+                            daysUnit={rule.id === "MIN_RUNWAY_DAYS" ? tCommon("days") : undefined}
+                          />
                         </div>
                       )}
                     </div>
@@ -518,21 +499,25 @@ export function PolicyBuilder({
               {/* Text editor */}
               <div className="rounded-xl border border-line overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-bg-1">
-                  <span className="text-xs font-medium text-fg">Editar via texto</span>
-                  <span className="text-[10px] font-mono text-fg-3">OPUS 4.7 · TOOL USE</span>
+                  <span className="text-xs font-medium text-fg">
+                    {t("text_editor_title" as never)}
+                  </span>
+                  <span className="text-[10px] font-mono text-fg-3">
+                    {t("text_editor_model" as never)}
+                  </span>
                 </div>
                 <div className="bg-bg-0 p-3">
                   <textarea
                     value={aiDescription}
                     onChange={(e) => setAiDescription(e.target.value)}
-                    placeholder="Quero 4 meses protegidos, sem mais de 30% num protocolo, aplica só o excedente."
+                    placeholder={t("text_editor_placeholder" as never)}
                     rows={5}
                     className="w-full resize-none bg-transparent text-sm text-fg placeholder:text-fg-3 focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center justify-between px-4 py-2.5 border-t border-line bg-bg-1">
                   <span className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">
-                    Rules-engine valida antes de salvar
+                    {t("text_editor_footer" as never)}
                   </span>
                   <button
                     type="button"
@@ -543,10 +528,10 @@ export function PolicyBuilder({
                     {isAiGenerating ? (
                       <>
                         <span className="inline-block w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
-                        Gerando…
+                        {t("generating_btn" as never)}
                       </>
                     ) : (
-                      <>✦ Gerar JSON</>
+                      t("generate_btn" as never)
                     )}
                   </button>
                 </div>
@@ -559,8 +544,12 @@ export function PolicyBuilder({
               {versions.length > 0 && (
                 <div className="rounded-xl border border-line overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-bg-1">
-                    <span className="text-xs font-medium text-fg">Versões</span>
-                    <span className="text-[10px] font-mono text-fg-3">AUDIT LOG</span>
+                    <span className="text-xs font-medium text-fg">
+                      {t("versions_title" as never)}
+                    </span>
+                    <span className="text-[10px] font-mono text-fg-3">
+                      {t("audit_log_label" as never)}
+                    </span>
                   </div>
                   <div className="divide-y divide-line">
                     {versions.map((v) => (
@@ -568,13 +557,13 @@ export function PolicyBuilder({
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-xs font-mono text-fg-3 shrink-0">v{v.version}</span>
                           <span className="text-xs text-fg-2 truncate">
-                            {v.authorLabel ?? presetDisplayName(v.preset)}
+                            {v.authorLabel ?? t(`presets.${v.preset}.label` as never)}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {v.activatedAt && (
                             <span className="text-[10px] font-mono text-fg-3">
-                              {formatVersionDate(v.activatedAt)}
+                              {formatVersionDate(v.activatedAt, tCommon("today"), locale)}
                             </span>
                           )}
                           <span
@@ -584,7 +573,9 @@ export function PolicyBuilder({
                                 : "text-fg-3 border-line opacity-60"
                             }`}
                           >
-                            {v.status === "active" ? "ATIVA" : "ARQUIVADA"}
+                            {v.status === "active"
+                              ? t("preset_active_badge" as never)
+                              : tCommon("archived")}
                           </span>
                         </div>
                       </div>

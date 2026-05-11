@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { approveProposal } from "@/app/(app)/copilot/actions";
 import type { StreamEvent, ProposalAction, ProjectionMeta } from "@/lib/agent/client";
 
@@ -52,26 +53,12 @@ const MODEL_LABEL: Record<string, string> = {
   opus:   "Opus 4.7",
 };
 
-const SUGGESTIONS = [
-  "Analisar tesouraria e identificar excedente ocioso",
-  "Quero 4 meses protegidos, sem mais de 30% num protocolo",
-  "Simular alocação de 250k em Kamino + 70k em RWA",
-  "Resumir últimos 7 dias para o board",
-];
-
-const GUARDRAILS = [
-  "rules-engine.validateAction antes de qualquer intent",
-  "Reprompt automático se ação violar policy (max 2)",
-  "Rate limit 10 calls/min · audit log append-only",
-  "Toda ação assinada via Phantom no device",
-];
-
 const ALL_TOOLS = Object.keys(TOOL_DISPLAY);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtUSD(n: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -148,6 +135,7 @@ function CodeBlock({ tool }: { tool: ToolInfo }) {
 }
 
 function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (actions: ProposalAction[]) => void }) {
+  const t = useTranslations("copilot.proposal");
   const [state, setState] = useState<"idle" | "loading" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -165,22 +153,30 @@ function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (act
         onApprove(data.actions);
       } else {
         setState("idle");
-        setError(result.error ?? "Erro ao aprovar");
+        setError(result.error ?? t("error_approve"));
       }
     });
   };
+
+  function actionLabel(kind: string, protocol: string, adapterId: string): string {
+    const verb = kind === "deposit" ? t("action_deposit")
+               : kind === "withdraw" ? t("action_withdraw")
+               : t("action_rebalance");
+    const prep = adapterId.includes("usdy") || adapterId.includes("rwa") ? `(${protocol.split(" ")[0]})` : `${t("action_in")} ${protocol.split(" ")[0]}`;
+    return `${verb} ${prep}`;
+  }
 
   return (
     <div className="mt-3 rounded-xl border border-line bg-bg-1 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">⊙ Recomendação</span>
+          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">{t("header")}</span>
           <span className="text-[9px] font-mono text-fg-2 font-semibold">· {fmtUSD(data.totalUsd)} USDC</span>
         </div>
         {state === "done" && (
           <a href="/execution" className="text-[9px] font-mono text-accent hover:underline">
-            Ver em Execução →
+            {t("view_execution")}
           </a>
         )}
       </div>
@@ -193,8 +189,8 @@ function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (act
               <span className="text-[9px] font-mono text-fg-3 mt-0.5 shrink-0">#{i + 1}</span>
               <div>
                 <div className="text-xs font-medium text-fg">
-                  {action.kind === "deposit" ? "Depositar" : action.kind === "withdraw" ? "Sacar" : "Rebalancear"}{" "}
-                  {fmtUSD(action.amountUsd)} {action.adapterId.includes("usdy") || action.adapterId.includes("rwa") ? `(${action.protocol.split(" ")[0]})` : `em ${action.protocol.split(" ")[0]}`}
+                  {actionLabel(action.kind, action.protocol, action.adapterId)}{" "}
+                  {fmtUSD(action.amountUsd)}
                 </div>
                 <div className="text-[10px] text-fg-3 font-mono mt-0.5">
                   {action.strategy} · APR {action.aprPct.toFixed(2)}% · risk tier {action.riskTier}
@@ -202,7 +198,7 @@ function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (act
               </div>
             </div>
             <span className="text-xs font-mono font-semibold text-accent shrink-0 border border-accent/30 bg-accent/5 px-2 py-0.5 rounded">
-              +{fmtUSD(action.monthlyYield)}/mo
+              +{fmtUSD(action.monthlyYield)}{t("monthly_yield_suffix")}
             </span>
           </div>
         ))}
@@ -211,8 +207,8 @@ function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (act
       {/* Footer */}
       <div className="px-4 py-2.5 border-t border-line flex items-center justify-between gap-3 flex-wrap">
         <div className="text-[10px] font-mono text-fg-3">
-          Compliance score projetado: {data.baseline.complianceScore} → {data.scenario.complianceScore}
-          {" · "}runway protegido: {data.baseline.protectedRunwayMonths.toFixed(1)} → {data.scenario.protectedRunwayMonths.toFixed(1)} meses
+          {t("compliance_label")}: {data.baseline.complianceScore} → {data.scenario.complianceScore}
+          {" · "}{t("runway_label")}: {data.baseline.protectedRunwayMonths.toFixed(1)} → {data.scenario.protectedRunwayMonths.toFixed(1)} {t("months_suffix")}
         </div>
         {error && <span className="text-[10px] text-neg">{error}</span>}
         {state !== "done" ? (
@@ -221,18 +217,18 @@ function ProposalCard({ data, onApprove }: { data: ProposalData; onApprove: (act
               href="/simulator"
               className="px-3 py-1.5 rounded-lg border border-line text-[10px] font-mono text-fg-3 hover:text-fg hover:border-accent/40 transition-colors"
             >
-              Editar
+              {t("edit")}
             </a>
             <button
               onClick={handleApprove}
               disabled={state === "loading"}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-bg-0 text-[10px] font-mono font-semibold hover:opacity-90 disabled:opacity-50 transition-all"
             >
-              {state === "loading" ? "Aprovando…" : "✓ Aprovar e simular"}
+              {state === "loading" ? t("approving") : t("approve")}
             </button>
           </div>
         ) : (
-          <span className="text-[10px] font-mono text-accent">✓ Aprovado — intents criados</span>
+          <span className="text-[10px] font-mono text-accent">{t("approved")}</span>
         )}
       </div>
     </div>
@@ -252,10 +248,10 @@ function AssistantBubble({
   streamText?: string;
   streamProposal?: ProposalData | null;
 }) {
+  const t = useTranslations("copilot");
   const tools = msg?.tools ?? streamTools ?? [];
   const text = msg?.text ?? streamText ?? "";
   const proposal = msg?.proposal ?? streamProposal ?? null;
-  const primaryTool = tools[0];
 
   return (
     <div className="flex gap-3">
@@ -289,7 +285,7 @@ function AssistantBubble({
         {!text && streaming && tools.length > 0 && !proposal && (
           <div className="flex items-center gap-2 mt-1">
             <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-            <span className="text-[10px] font-mono text-fg-3">processando…</span>
+            <span className="text-[10px] font-mono text-fg-3">{t("processing")}</span>
           </div>
         )}
 
@@ -315,6 +311,7 @@ export interface CopilotProps {
 }
 
 export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: CopilotProps) {
+  const t = useTranslations("copilot");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -395,7 +392,7 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
         }
       } catch (err: unknown) {
         if ((err as Error).name !== "AbortError") {
-          setError("Falha ao comunicar com o Copilot.");
+          setError(t("error"));
         }
       } finally {
         // Package completed message
@@ -469,6 +466,8 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
   }
 
   const isEmpty = messages.length === 0 && !isStreaming;
+  const suggestions = t.raw("suggestions") as string[];
+  const guardrails = t.raw("guardrails") as string[];
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -476,7 +475,7 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Context bar */}
         <div className="px-4 py-2 border-b border-line flex items-center justify-between shrink-0">
-          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">WORKSPACE / AI COPILOT</div>
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">{t("breadcrumb")}</div>
           <div className="flex items-center gap-2">
             {(policyVersion || snapshotCount) && (
               <span className="text-[9px] font-mono text-fg-3 border border-line bg-bg-2 rounded px-2 py-0.5">
@@ -493,7 +492,7 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
               }}
               className="text-[9px] font-mono text-fg-3 hover:text-fg border border-line rounded px-2 py-0.5 hover:border-accent/40 transition-colors"
             >
-              ↺ Nova thread
+              {t("new_thread")}
             </button>
           </div>
         </div>
@@ -503,13 +502,13 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
           {isEmpty && (
             <div className="flex flex-col items-center justify-center h-full text-center py-8">
               <div className="text-xl mb-2 text-accent">✦</div>
-              <div className="text-sm font-semibold text-fg mb-1">TreasuryOS Copilot</div>
+              <div className="text-sm font-semibold text-fg mb-1">{t("title")}</div>
               <div className="text-xs text-fg-3 mb-6 max-w-xs">
-                Pergunte sobre alocação, política, runway, ou peça uma proposta de investimento.
+                {t("subtitle")}
               </div>
               {!hasSnapshot && (
                 <div className="rounded-lg border border-warn/30 bg-warn/5 px-4 py-2 text-xs text-warn mb-6 max-w-xs">
-                  Nenhum snapshot — tire um snapshot no dashboard para análises precisas.
+                  {t("no_snapshot_warning")}
                 </div>
               )}
             </div>
@@ -548,7 +547,7 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Pergunte algo, descreva uma policy, ou peça uma simulação…"
+              placeholder={t("placeholder")}
               rows={1}
               disabled={isStreaming}
               className="flex-1 resize-none rounded-xl border border-line bg-bg-2 px-4 py-3 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 disabled:opacity-50 transition-colors min-h-11 max-h-36 overflow-auto"
@@ -571,16 +570,16 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
               </button>
             )}
           </div>
-          <div className="text-[9px] text-fg-3 mt-1.5 font-mono">⌘+Enter para enviar</div>
+          <div className="text-[9px] text-fg-3 mt-1.5 font-mono">{t("send_hint")}</div>
         </div>
       </div>
 
       {/* ── Right: sidebar ── */}
       <div className="w-68 border-l border-line flex flex-col shrink-0 overflow-y-auto">
-        {/* Tools disponíveis */}
+        {/* Available tools */}
         <div className="px-4 py-3 border-b border-line">
           <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-3 flex items-center justify-between">
-            <span>⚙ Tools disponíveis</span>
+            <span>{t("tools_label")}</span>
             <span className="text-fg-3">{ALL_TOOLS.length}</span>
           </div>
           <div className="space-y-2">
@@ -611,11 +610,11 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
           </div>
         </div>
 
-        {/* Sugestões */}
+        {/* Suggestions */}
         <div className="px-4 py-3 border-b border-line">
-          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-2.5">Sugestões</div>
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-2.5">{t("suggestions_label")}</div>
           <div className="space-y-1">
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => sendMessage(s)}
@@ -631,9 +630,9 @@ export function Copilot({ hasSnapshot, policyVersion, snapshotCount, orgName }: 
 
         {/* Guardrails */}
         <div className="px-4 py-3">
-          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-2.5">◎ Guardrails</div>
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-wider mb-2.5">{t("guardrails_label")}</div>
           <div className="space-y-1.5">
-            {GUARDRAILS.map((g) => (
+            {guardrails.map((g) => (
               <div key={g} className="flex items-start gap-2 text-[10px] text-fg-3">
                 <span className="text-accent shrink-0 mt-px">✓</span>
                 <span>{g}</span>

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
 import { memberships, equityTokens, equityDividends } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { getTranslations } from "next-intl/server";
 import { isDemoUser } from "@/lib/demo";
 import { getTokenOnchainData } from "@/lib/solana/token";
 import { TokenStudio } from "@/components/equity/TokenStudio";
@@ -64,6 +65,8 @@ export default async function EquityStudioPage() {
     );
   }
 
+  const t = await getTranslations("equity");
+
   // ── Real user: check org + token config ──
   const membership = await db.query.memberships.findFirst({
     where: eq(memberships.userId, user.id),
@@ -74,8 +77,8 @@ export default async function EquityStudioPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center max-w-sm">
-          <div className="text-sm text-fg-2 mb-4">Configure sua organização primeiro.</div>
-          <a href="/setup" className="text-sm text-accent hover:underline">Iniciar onboarding →</a>
+          <div className="text-sm text-fg-2 mb-4">{t("no_org" as never)}</div>
+          <a href="/setup" className="text-sm text-accent hover:underline">{t("no_org_onboard" as never)}</a>
         </div>
       </div>
     );
@@ -96,13 +99,12 @@ export default async function EquityStudioPage() {
     return (
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         <div className="text-[10px] text-fg-3 font-mono uppercase tracking-wider mb-4">
-          WORKSPACE / TOKEN STUDIO
+          {t("breadcrumb" as never)}
         </div>
         <div className="mb-6">
-          <h1 className="text-lg font-semibold text-fg mb-1">Token Studio · {membership.org.name}</h1>
+          <h1 className="text-lg font-semibold text-fg mb-1">{t("setup_title" as never, { orgName: membership.org.name } as never)}</h1>
           <p className="text-xs text-fg-2 max-w-lg">
-            Emita um token de equity da empresa, abasteça pool próprio e distribua dividendos on-chain.
-            Compliance e audit trail integrados ao Policy Engine.
+            {t("setup_desc" as never)}
           </p>
         </div>
         <TokenSetupClientWrapper />

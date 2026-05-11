@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { Connection, PublicKey, SystemProgram, Keypair, Transaction, TransactionInstruction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { configureEquityToken } from "@/app/(app)/equity-studio/actions";
 
@@ -32,6 +33,7 @@ function buildInitializeMintIx(
 // ── Tab: Import existing token ────────────────────────────────────────────────
 
 function ImportTab({ onSuccess }: { onSuccess: () => void }) {
+  const t = useTranslations("equity");
   const [mint, setMint] = useState("");
   const [symbol, setSymbol] = useState("");
   const [name, setName] = useState("");
@@ -53,32 +55,30 @@ function ImportTab({ onSuccess }: { onSuccess: () => void }) {
       setDecimals(supply.value.decimals);
       setFetchError("");
     } catch {
-      setFetchError("Mint não encontrado na devnet. Verifique o endereço.");
+      setFetchError(t("error_mint_not_found" as never));
     } finally {
       setFetching(false);
     }
   }
 
   function handleSubmit() {
-    if (!mint || !symbol || !name) { setError("Preencha mint, símbolo e nome."); return; }
+    if (!mint || !symbol || !name) { setError(t("error_fill_required" as never)); return; }
     setError("");
     const priceUsdcE6 = price ? Math.round(parseFloat(price) * 1_000_000) : undefined;
     startTransition(async () => {
       const res = await configureEquityToken({ mint, symbol: symbol.toUpperCase(), name, decimals, priceUsdcE6 });
-      if (!res.ok) { setError(res.error ?? "Erro ao salvar."); return; }
+      if (!res.ok) { setError(res.error ?? t("error_save" as never)); return; }
       onSuccess();
     });
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-fg-3">
-        Cole o endereço do mint SPL Token da sua empresa. Buscaremos os dados on-chain automaticamente.
-      </p>
+      <p className="text-xs text-fg-3">{t("import_desc" as never)}</p>
 
       <div className="space-y-3">
         <div>
-          <label className="block text-xs text-fg-3 mb-1">Mint address *</label>
+          <label className="block text-xs text-fg-3 mb-1">{t("mint_label" as never)}</label>
           <div className="flex gap-2">
             <input
               value={mint}
@@ -92,7 +92,7 @@ function ImportTab({ onSuccess }: { onSuccess: () => void }) {
               disabled={fetching || mint.length < 32}
               className="px-3 py-2 rounded-lg border border-line text-xs text-fg-2 hover:bg-bg-2 disabled:opacity-40 transition-all shrink-0"
             >
-              {fetching ? "…" : "Verificar"}
+              {fetching ? t("verifying" as never) : t("verify_btn" as never)}
             </button>
           </div>
           {fetchError && <p className="text-[11px] text-neg mt-1">{fetchError}</p>}
@@ -100,26 +100,26 @@ function ImportTab({ onSuccess }: { onSuccess: () => void }) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-fg-3 mb-1">Símbolo *</label>
+            <label className="block text-xs text-fg-3 mb-1">{t("symbol_label" as never)}</label>
             <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} maxLength={12}
               placeholder="CAPI"
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
           </div>
           <div>
-            <label className="block text-xs text-fg-3 mb-1">Decimais</label>
+            <label className="block text-xs text-fg-3 mb-1">{t("decimals_label" as never)}</label>
             <input type="number" value={decimals} onChange={(e) => setDecimals(Number(e.target.value))} min={0} max={9}
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs text-fg-3 mb-1">Nome do token *</label>
+          <label className="block text-xs text-fg-3 mb-1">{t("token_name_label" as never)}</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Capivara Ventures Equity Token"
             className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
         </div>
 
         <div>
-          <label className="block text-xs text-fg-3 mb-1">Preço inicial USDC (opcional)</label>
+          <label className="block text-xs text-fg-3 mb-1">{t("initial_price_label" as never)}</label>
           <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} step="0.001" placeholder="0.082"
             className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
         </div>
@@ -132,7 +132,7 @@ function ImportTab({ onSuccess }: { onSuccess: () => void }) {
         disabled={isPending || !mint || !symbol || !name}
         className="w-full px-4 py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
       >
-        {isPending ? "Salvando…" : "Conectar token →"}
+        {isPending ? t("saving_btn" as never) : t("connect_token_btn" as never)}
       </button>
     </div>
   );
@@ -141,6 +141,7 @@ function ImportTab({ onSuccess }: { onSuccess: () => void }) {
 // ── Tab: Create new token on devnet ──────────────────────────────────────────
 
 function CreateTab({ onSuccess }: { onSuccess: () => void }) {
+  const t = useTranslations("equity");
   const [symbol, setSymbol] = useState("");
   const [name, setName] = useState("");
   const [decimals, setDecimals] = useState(6);
@@ -150,22 +151,21 @@ function CreateTab({ onSuccess }: { onSuccess: () => void }) {
   const [isPending, startTransition] = useTransition();
 
   async function handleCreate() {
-    if (!symbol || !name) { setMessage("Preencha símbolo e nome."); return; }
+    if (!symbol || !name) { setMessage(t("error_fill_symbol_name" as never)); return; }
 
     const phantom = (window as unknown as { phantom?: { solana?: { isConnected: boolean; publicKey: { toBase58: () => string; toBuffer: () => Buffer }; signAndSendTransaction: (tx: Transaction) => Promise<{ signature: string }> } } }).phantom?.solana;
     if (!phantom?.isConnected) {
-      setMessage("Conecte a Phantom primeiro (botão no topo direito).");
+      setMessage(t("error_connect_phantom" as never));
       return;
     }
 
     setStatus("creating");
-    setMessage("Preparando transação…");
+    setMessage(t("msg_preparing_tx" as never));
 
     try {
       const conn = new Connection(RPC_URL, "confirmed");
       const payerPk = new PublicKey(phantom.publicKey.toBase58());
 
-      // Generate a new keypair for the mint
       const mintKeypair = Keypair.generate();
       const lamports = await conn.getMinimumBalanceForRentExemption(MINT_SPACE);
       const { blockhash } = await conn.getLatestBlockhash();
@@ -186,20 +186,18 @@ function CreateTab({ onSuccess }: { onSuccess: () => void }) {
         buildInitializeMintIx(mintKeypair.publicKey, payerPk, decimals)
       );
 
-      // Partial sign with mint keypair (required since it's a new account)
       tx.partialSign(mintKeypair);
 
-      setMessage("Assine a transação na Phantom…");
+      setMessage(t("msg_sign_tx" as never));
 
       const { signature } = await phantom.signAndSendTransaction(tx);
 
-      setMessage("Confirmando on-chain…");
+      setMessage(t("msg_confirming" as never));
       await conn.confirmTransaction(signature, "confirmed");
 
       const mintAddress = mintKeypair.publicKey.toBase58();
-      setMessage(`Token criado! Mint: ${mintAddress.slice(0, 8)}…${mintAddress.slice(-4)}`);
+      setMessage(t("msg_token_created" as never, { prefix: mintAddress.slice(0, 8), suffix: mintAddress.slice(-4) } as never));
 
-      // Save to DB
       const priceUsdcE6 = price ? Math.round(parseFloat(price) * 1_000_000) : undefined;
       startTransition(async () => {
         const res = await configureEquityToken({
@@ -209,52 +207,50 @@ function CreateTab({ onSuccess }: { onSuccess: () => void }) {
           decimals,
           priceUsdcE6,
         });
-        if (!res.ok) { setStatus("error"); setMessage(res.error ?? "Erro ao salvar."); return; }
+        if (!res.ok) { setStatus("error"); setMessage(res.error ?? t("error_save" as never)); return; }
         setStatus("done");
         setTimeout(onSuccess, 1200);
       });
     } catch (e: unknown) {
       setStatus("error");
-      setMessage((e as Error).message ?? "Erro desconhecido");
+      setMessage((e as Error).message ?? t("error_unknown" as never));
     }
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-fg-3">
-        Cria um novo mint SPL Token na Solana devnet. Sua Phantom wallet será definida como mint authority.
-      </p>
+      <p className="text-xs text-fg-3">{t("create_desc" as never)}</p>
 
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-fg-3 mb-1">Símbolo *</label>
+            <label className="block text-xs text-fg-3 mb-1">{t("symbol_label" as never)}</label>
             <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} maxLength={12} placeholder="CAPI"
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
           </div>
           <div>
-            <label className="block text-xs text-fg-3 mb-1">Decimais</label>
+            <label className="block text-xs text-fg-3 mb-1">{t("decimals_label" as never)}</label>
             <input type="number" value={decimals} onChange={(e) => setDecimals(Number(e.target.value))} min={0} max={9}
               className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs text-fg-3 mb-1">Nome do token *</label>
+          <label className="block text-xs text-fg-3 mb-1">{t("token_name_label" as never)}</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Empresa Equity Token"
             className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
         </div>
 
         <div>
-          <label className="block text-xs text-fg-3 mb-1">Preço inicial USDC (opcional)</label>
+          <label className="block text-xs text-fg-3 mb-1">{t("initial_price_label" as never)}</label>
           <input type="number" step="0.001" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.050"
             className="w-full bg-bg-2 border border-line rounded-lg px-3 py-2 text-sm font-mono text-fg focus:outline-none focus:border-accent/60 transition-colors" />
         </div>
       </div>
 
       <div className="rounded-lg bg-bg-2 border border-line p-3 text-xs text-fg-3">
-        <p className="font-mono text-warn mb-1">Requer ~0.0015 SOL na Phantom (rent exemption)</p>
-        <p>Você precisará de SOL na devnet. Use <code className="text-accent">solana airdrop 1</code> ou o faucet.solana.com</p>
+        <p className="font-mono text-warn mb-1">{t("rent_notice" as never)}</p>
+        <p>{t("devnet_sol_notice" as never)}</p>
       </div>
 
       {message && (
@@ -270,7 +266,7 @@ function CreateTab({ onSuccess }: { onSuccess: () => void }) {
         disabled={status === "creating" || status === "done" || !symbol || !name}
         className="w-full px-4 py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
       >
-        {status === "creating" ? "Criando…" : status === "done" ? "Criado ✓" : "Criar token na Devnet →"}
+        {status === "creating" ? t("creating_btn" as never) : status === "done" ? t("created_btn" as never) : t("create_token_btn" as never)}
       </button>
     </div>
   );
@@ -279,29 +275,36 @@ function CreateTab({ onSuccess }: { onSuccess: () => void }) {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function TokenSetupClient({ onSuccess }: { onSuccess: () => void }) {
+  const t = useTranslations("equity");
   const [tab, setTab] = useState<"import" | "create">("import");
+
+  const JOURNEY_STEPS = [
+    { key: "treasury",       current: false, active: true },
+    { key: "equity_token",   current: true,  active: true },
+    { key: "angel_investor", current: false, active: false },
+    { key: "token_ipo",      current: false, active: false },
+    { key: "open_market",    current: false, active: false },
+  ] as const;
 
   return (
     <div className="max-w-lg mx-auto">
       <div className="rounded-xl border border-line bg-bg-1 overflow-hidden">
         <div className="px-6 py-5 border-b border-line">
-          <h2 className="text-base font-semibold text-fg mb-1">Configurar Token de Equity</h2>
-          <p className="text-xs text-fg-3">
-            Emita ou conecte um SPL Token para representar participação da empresa.
-          </p>
+          <h2 className="text-base font-semibold text-fg mb-1">{t("configure_title" as never)}</h2>
+          <p className="text-xs text-fg-3">{t("configure_desc" as never)}</p>
         </div>
 
         {/* Tabs */}
         <div className="flex border-b border-line">
-          {(["import", "create"] as const).map((t) => (
+          {(["import", "create"] as const).map((tabKey) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabKey}
+              onClick={() => setTab(tabKey)}
               className={`flex-1 py-3 text-xs font-mono transition-colors ${
-                tab === t ? "text-fg border-b-2 border-accent -mb-px" : "text-fg-3 hover:text-fg"
+                tab === tabKey ? "text-fg border-b-2 border-accent -mb-px" : "text-fg-3 hover:text-fg"
               }`}
             >
-              {t === "import" ? "Importar token existente" : "Criar novo token"}
+              {tabKey === "import" ? t("import_tab" as never) : t("create_tab" as never)}
             </button>
           ))}
         </div>
@@ -317,22 +320,16 @@ export function TokenSetupClient({ onSuccess }: { onSuccess: () => void }) {
       {/* Phase context */}
       <div className="mt-4 rounded-xl border border-line bg-bg-1 p-4">
         <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider mb-2">
-          Jornada da empresa
+          {t("journey_label" as never)}
         </div>
         <div className="flex items-center gap-2 text-xs overflow-x-auto">
-          {[
-            { label: "Tesouraria", active: true },
-            { label: "Equity Token", active: true, current: true },
-            { label: "Investidor Anjo", active: false },
-            { label: "Token IPO", active: false },
-            { label: "Mercado Aberto", active: false },
-          ].map((step, i, arr) => (
-            <div key={step.label} className="flex items-center gap-2 shrink-0">
+          {JOURNEY_STEPS.map((step, i, arr) => (
+            <div key={step.key} className="flex items-center gap-2 shrink-0">
               <div className={`px-2 py-1 rounded font-mono text-[10px] ${
                 step.current ? "bg-accent text-bg-0 font-semibold" :
                 step.active ? "bg-bg-2 text-fg-2" : "bg-bg-2 text-fg-3 opacity-50"
               }`}>
-                {step.label}
+                {t(`journey_steps.${step.key}` as never)}
               </div>
               {i < arr.length - 1 && <span className="text-fg-3">→</span>}
             </div>

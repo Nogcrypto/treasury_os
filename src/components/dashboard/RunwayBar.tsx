@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 const MONTHLY_BURN = 72_418;
 
 interface RunwayBarProps {
@@ -8,16 +10,19 @@ interface RunwayBarProps {
 }
 
 const BUCKET_CONFIG = [
-  { kind: "operating", label: "Operacional", color: "bg-accent",   textColor: "text-accent" },
-  { kind: "payroll",   label: "Folha",       color: "bg-accent-2", textColor: "text-accent-2" },
-  { kind: "tax",       label: "Impostos",    color: "bg-warn",     textColor: "text-warn" },
-  { kind: "emergency", label: "Reserva",     color: "bg-neg",      textColor: "text-neg" },
-  { kind: "yield",     label: "Excedente",   color: "bg-accent-3", textColor: "text-accent-3" },
+  { kind: "operating", color: "bg-accent",   textColor: "text-accent",   labelKey: "operating" },
+  { kind: "payroll",   color: "bg-accent-2", textColor: "text-accent-2", labelKey: "payroll" },
+  { kind: "tax",       color: "bg-warn",     textColor: "text-warn",     labelKey: "tax" },
+  { kind: "emergency", color: "bg-neg",      textColor: "text-neg",      labelKey: "emergency" },
+  { kind: "yield",     color: "bg-accent-3", textColor: "text-accent-3", labelKey: "yield" },
 ];
 
 const MAX_MONTHS = 12;
 
-export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayBarProps) {
+export async function RunwayBar({ liquidUsd, deployedUsd: _deployedUsd, totalUsd, buckets }: RunwayBarProps) {
+  const t = await getTranslations("dashboard.runway");
+  const tBuckets = await getTranslations("dashboard.buckets");
+
   const totalMonths = totalUsd / MONTHLY_BURN;
   const displayMax = Math.max(MAX_MONTHS, Math.ceil(totalMonths));
 
@@ -26,7 +31,8 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
     const balanceUsd = bucket?.balanceUsd ?? 0;
     const months = balanceUsd / MONTHLY_BURN;
     const widthPct = (months / displayMax) * 100;
-    return { ...cfg, months, widthPct, balanceUsd };
+    const label = tBuckets(cfg.labelKey as never);
+    return { ...cfg, label, months, widthPct, balanceUsd };
   }).filter((s) => s.balanceUsd > 0);
 
   const liquidMonths = liquidUsd / MONTHLY_BURN;
@@ -35,17 +41,19 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-mono text-fg-3 uppercase tracking-wider">Runway protegido vs. excedente</div>
+        <div className="text-xs font-mono text-fg-3 uppercase tracking-wider">
+          {t("title" as never)}
+        </div>
         <div className="flex items-center gap-3">
           {BUCKET_CONFIG.slice(0, 4).map((cfg) => (
             <div key={cfg.kind} className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full ${cfg.color}`} />
-              <span className="text-[10px] text-fg-3">{cfg.label}</span>
+              <span className="text-[10px] text-fg-3">{tBuckets(cfg.labelKey as never)}</span>
             </div>
           ))}
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-accent-3" />
-            <span className="text-[10px] text-fg-3">Excedente</span>
+            <span className="text-[10px] text-fg-3">{tBuckets("yield" as never)}</span>
           </div>
         </div>
       </div>
@@ -57,7 +65,7 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
             key={seg.kind}
             style={{ width: `${seg.widthPct}%` }}
             className={`${seg.color} opacity-80 hover:opacity-100 transition-opacity relative group`}
-            title={`${seg.label}: ${seg.months.toFixed(1)} meses`}
+            title={`${seg.label}: ${seg.months.toFixed(1)} mo`}
           />
         ))}
         {/* Protected runway marker */}
@@ -69,7 +77,7 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
           className="absolute -top-0.5 text-[9px] font-mono text-fg-2 translate-x-1"
           style={{ left: `${(protectedMonths / displayMax) * 100}%` }}
         >
-          protegido
+          {t("protected_marker" as never)}
         </div>
       </div>
 
@@ -81,7 +89,7 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
             className="absolute text-[10px] font-mono text-fg-3 -translate-x-1/2"
             style={{ left: `${(m / displayMax) * 100}%` }}
           >
-            {m === 0 ? "hoje" : `${m}m`}
+            {m === 0 ? t("today" as never) : `${m}m`}
           </div>
         ))}
       </div>
@@ -89,13 +97,13 @@ export function RunwayBar({ liquidUsd, deployedUsd, totalUsd, buckets }: RunwayB
       {/* Stats row */}
       <div className="flex items-center gap-4 mt-2 text-xs">
         <span className="text-fg-3">
-          Líquido: <span className="font-mono text-fg">{liquidMonths.toFixed(1)} mo</span>
+          {t("liquid" as never)} <span className="font-mono text-fg">{liquidMonths.toFixed(1)} mo</span>
         </span>
         <span className="text-fg-3">
-          Total: <span className="font-mono text-fg">{totalMonths.toFixed(1)} mo</span>
+          {t("total" as never)} <span className="font-mono text-fg">{(totalUsd / MONTHLY_BURN).toFixed(1)} mo</span>
         </span>
         <span className="text-fg-3">
-          Burn/mês: <span className="font-mono text-fg">
+          {t("burn" as never)} <span className="font-mono text-fg">
             {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(MONTHLY_BURN)}
           </span>
         </span>

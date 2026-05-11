@@ -4,29 +4,18 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import nextDynamic from "next/dynamic";
 import { signOut } from "@/app/(auth)/login/actions";
 import { MarketTicker } from "./MarketTicker";
 import { WalletButton } from "./WalletButton";
 import { Tour } from "./Tour";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
 const ProfilePanelDynamic = nextDynamic(
   () => import("./ProfilePanelWithProviders").then((m) => ({ default: m.ProfilePanelWithProviders })),
   { ssr: false }
 );
-
-const NAV_WORKSPACE_BASE = [
-  { href: "/dashboard",     label: "Dashboard",      icon: "⬡", badge: null as string | null, badgeVariant: "" },
-  { href: "/policy",        label: "Policy Engine",  icon: "⚖", badge: null as string | null, badgeVariant: "" },
-  { href: "/copilot",       label: "AI Copilot",     icon: "✦", badge: "3",                   badgeVariant: "accent" },
-  { href: "/simulator",     label: "Simulador",      icon: "◈", badge: null as string | null, badgeVariant: "" },
-  { href: "/execution",     label: "Execução",       icon: "▶", badge: null as string | null, badgeVariant: "" },
-  { href: "/equity-studio", label: "Equity Studio",  icon: "◎", badge: "NOVO",                badgeVariant: "accent" },
-];
-
-const NAV_OPERACOES = [
-  { href: "/reports", label: "Reporting", icon: "↗", badge: null as string | null, badgeVariant: "" },
-];
 
 function initials(name?: string, email?: string) {
   if (name) {
@@ -88,16 +77,29 @@ export function AppShell({
   alertCount?: number;
   showTourAutoStart?: boolean;
 }) {
+  const t = useTranslations("nav");
+  const tCommon = useTranslations("common");
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [simMode, setSimMode] = useState(simulatedMode ?? false);
 
-  const navWorkspace = NAV_WORKSPACE_BASE.map((item) =>
+  const navWorkspace = [
+    { href: "/dashboard",     label: t("items.dashboard"),     icon: "⬡", badge: null as string | null, badgeVariant: "" },
+    { href: "/policy",        label: t("items.policy"),        icon: "⚖", badge: null as string | null, badgeVariant: "" },
+    { href: "/copilot",       label: t("items.copilot"),       icon: "✦", badge: "3",                   badgeVariant: "accent" },
+    { href: "/simulator",     label: t("items.simulator"),     icon: "◈", badge: null as string | null, badgeVariant: "" },
+    { href: "/execution",     label: t("items.execution"),     icon: "▶", badge: null as string | null, badgeVariant: "" },
+    { href: "/equity-studio", label: t("items.equity_studio"), icon: "◎", badge: tCommon("new_badge"),  badgeVariant: "accent" },
+  ].map((item) =>
     item.href === "/dashboard" && alertCount && alertCount > 0
       ? { ...item, badge: String(alertCount), badgeVariant: "neg" }
       : item
   );
+
+  const navOperations = [
+    { href: "/reports", label: t("items.reporting"), icon: "↗", badge: null as string | null, badgeVariant: "" },
+  ];
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
   const closeMobile = () => setMobileOpen(false);
@@ -122,7 +124,7 @@ export function AppShell({
         <button
           onClick={closeMobile}
           className="md:hidden ml-2 p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-bg-2 transition-colors shrink-0"
-          aria-label="Fechar menu"
+          aria-label={t("close_menu")}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -134,7 +136,7 @@ export function AppShell({
       <div className="flex-1 py-3 overflow-y-auto space-y-4">
         {/* Workspace */}
         <div>
-          <div className="px-4 mb-1 text-[9px] font-mono text-fg-3 uppercase tracking-widest">Workspace</div>
+          <div className="px-4 mb-1 text-[9px] font-mono text-fg-3 uppercase tracking-widest">{t("workspace")}</div>
           <div className="space-y-0.5">
             {navWorkspace.map((item) => (
               <NavLink key={item.href} {...item} active={isActive(item.href)} onClick={closeMobile} />
@@ -142,11 +144,11 @@ export function AppShell({
           </div>
         </div>
 
-        {/* Operações */}
+        {/* Operations */}
         <div>
-          <div className="px-4 mb-1 text-[9px] font-mono text-fg-3 uppercase tracking-widest">Operações</div>
+          <div className="px-4 mb-1 text-[9px] font-mono text-fg-3 uppercase tracking-widest">{t("operations")}</div>
           <div className="space-y-0.5">
-            {NAV_OPERACOES.map((item) => (
+            {navOperations.map((item) => (
               <NavLink key={item.href} {...item} active={isActive(item.href)} onClick={closeMobile} />
             ))}
           </div>
@@ -158,7 +160,7 @@ export function AppShell({
         {/* RPC status */}
         <div className="flex items-center gap-2 px-2">
           <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-          <span className="text-[10px] font-mono text-fg-3">RPC FAST · devnet</span>
+          <span className="text-[10px] font-mono text-fg-3">{t("rpc_status")}</span>
         </div>
 
         {walletAddress && (
@@ -187,7 +189,7 @@ export function AppShell({
 
         <form action={signOut}>
           <button type="submit" className="text-[10px] text-fg-3 hover:text-fg transition-colors px-2">
-            Sair →
+            {t("sign_out")}
           </button>
         </form>
       </div>
@@ -221,7 +223,7 @@ export function AppShell({
           <button
             onClick={() => setMobileOpen(true)}
             className="md:hidden p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-bg-2 transition-colors shrink-0"
-            aria-label="Abrir menu"
+            aria-label={t("open_menu")}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -246,7 +248,7 @@ export function AppShell({
               </svg>
               <input
                 type="text"
-                placeholder="Buscar..."
+                placeholder={t("search_placeholder")}
                 className="w-full bg-bg-2 border border-line rounded-lg pl-7 pr-3 py-1 text-xs text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/50 transition-colors"
               />
             </div>
@@ -263,9 +265,12 @@ export function AppShell({
               <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform ${simMode ? "translate-x-4" : "translate-x-0.5"}`} />
             </div>
             <span className={`text-[10px] font-mono ${simMode ? "text-warn" : "text-fg-3"}`}>
-              {simMode ? "SIMULATED" : "LIVE"}
+              {simMode ? t("simulated") : t("live")}
             </span>
           </label>
+
+          {/* Language switcher */}
+          <LanguageSwitcher />
 
           {/* Tour */}
           <Tour autoStart={showTourAutoStart} />

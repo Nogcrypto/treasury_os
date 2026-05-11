@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   SolanaProvider,
   SolanaContextProvider,
@@ -24,13 +25,19 @@ async function callSetup(
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ["Organização", "Wallet", "Política", "Buckets"];
-
 function StepDots({ current }: { current: number }) {
+  const t = useTranslations("onboarding");
+  const stepLabels = [
+    t("step_labels.org" as never),
+    t("step_labels.wallet" as never),
+    t("step_labels.policy" as never),
+    t("step_labels.buckets" as never),
+  ];
+
   return (
     <div className="flex items-start mb-8">
-      {STEP_LABELS.map((label, i) => (
-        <div key={i} className={`flex items-start ${i < STEP_LABELS.length - 1 ? "flex-1" : ""}`}>
+      {stepLabels.map((label, i) => (
+        <div key={i} className={`flex items-start ${i < stepLabels.length - 1 ? "flex-1" : ""}`}>
           <div className="flex flex-col items-center gap-1 shrink-0">
             <div
               className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-mono font-semibold transition-all ${
@@ -51,7 +58,7 @@ function StepDots({ current }: { current: number }) {
               {label}
             </span>
           </div>
-          {i < STEP_LABELS.length - 1 && (
+          {i < stepLabels.length - 1 && (
             <div className={`flex-1 h-px mt-3 mx-1.5 ${i < current ? "bg-accent" : "bg-line"}`} />
           )}
         </div>
@@ -63,6 +70,7 @@ function StepDots({ current }: { current: number }) {
 // ── Step 1: Org ───────────────────────────────────────────────────────────────
 
 function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
+  const t = useTranslations("onboarding");
   const [name, setName] = useState("");
   const [profile, setProfile] = useState<"startup" | "dao" | "fund">("startup");
   const [burnUsd, setBurnUsd] = useState("");
@@ -71,13 +79,13 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
   const [isPending, setIsPending] = useState(false);
 
   const PROFILES = [
-    { value: "startup", label: "Startup" },
-    { value: "dao", label: "DAO" },
-    { value: "fund", label: "Fundo" },
+    { value: "startup", label: t("profiles.startup" as never) },
+    { value: "dao", label: t("profiles.dao" as never) },
+    { value: "fund", label: t("profiles.fund" as never) },
   ] as const;
 
   async function handleSubmit() {
-    if (!name.trim()) return setError("Nome é obrigatório.");
+    if (!name.trim()) return setError(t("name_required" as never));
     setError(null);
     setIsPending(true);
     try {
@@ -87,10 +95,10 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
         monthlyBurnUsd: Number(burnUsd) || 0,
         simulatedMode: simulated,
       });
-      if (!result.ok) setError(result.error ?? "Erro ao criar org.");
+      if (!result.ok) setError(result.error ?? t("error_create_org" as never));
       else onComplete(result.orgId!);
     } catch {
-      setError("Erro de conexão. Tente novamente.");
+      setError(t("error_connection" as never));
     } finally {
       setIsPending(false);
     }
@@ -100,20 +108,20 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
     <div className="space-y-5">
       <div>
         <label className="block text-xs font-mono text-fg-3 uppercase tracking-wider mb-1.5">
-          Nome da organização
+          {t("org_name_label" as never)}
         </label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Ex: Capivara Labs"
+          placeholder={t("org_name_placeholder" as never)}
           className="w-full rounded-lg border border-line bg-bg-2 px-3 py-2.5 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/20 transition-all"
         />
       </div>
 
       <div>
         <label className="block text-xs font-mono text-fg-3 uppercase tracking-wider mb-1.5">
-          Perfil
+          {t("profile_label" as never)}
         </label>
         <div className="flex gap-2">
           {PROFILES.map((p) => (
@@ -135,7 +143,7 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
 
       <div>
         <label className="block text-xs font-mono text-fg-3 uppercase tracking-wider mb-1.5">
-          Queima mensal (USD)
+          {t("monthly_burn_label" as never)}
         </label>
         <input
           type="number"
@@ -149,8 +157,8 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
 
       <div className="flex items-center justify-between py-2">
         <div>
-          <div className="text-sm text-fg">Modo simulado</div>
-          <div className="text-xs text-fg-3">Transações simuladas, sem carteira real</div>
+          <div className="text-sm text-fg">{t("simulated_mode_label" as never)}</div>
+          <div className="text-xs text-fg-3">{t("simulated_mode_desc" as never)}</div>
         </div>
         <button
           type="button"
@@ -174,7 +182,7 @@ function StepOrg({ onComplete }: { onComplete: (orgId: string) => void }) {
         disabled={isPending || !name.trim()}
         className="w-full py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        {isPending ? "Criando…" : "Continuar →"}
+        {isPending ? t("creating" as never) : t("continue" as never)}
       </button>
     </div>
   );
@@ -191,6 +199,7 @@ function StepWalletInner({
   onComplete: () => void;
   onSkip: () => void;
 }) {
+  const t = useTranslations("onboarding");
   const { publicKey, connected, connecting, connect, signInWithSolana } = useSolana();
   const [status, setStatus] = useState<"idle" | "signing" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +214,7 @@ function StepWalletInner({
     const result = await signInWithSolana(nonce);
     if (!result) {
       setStatus("error");
-      setError("Assinatura cancelada.");
+      setError(t("signature_cancelled" as never));
       return;
     }
 
@@ -219,14 +228,14 @@ function StepWalletInner({
       });
       if (!res.ok) {
         setStatus("error");
-        setError(res.error ?? "Falha ao vincular wallet.");
+        setError(res.error ?? t("error_link_wallet" as never));
       } else {
         setStatus("done");
         setTimeout(onComplete, 600);
       }
     } catch {
       setStatus("error");
-      setError("Erro de conexão.");
+      setError(t("error_connection" as never));
     } finally {
       setIsPending(false);
     }
@@ -234,9 +243,7 @@ function StepWalletInner({
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-fg-2">
-        Conecte seu Phantom para assinar transações na Solana devnet. Você pode pular e configurar depois.
-      </p>
+      <p className="text-sm text-fg-2">{t("wallet_desc" as never)}</p>
 
       {!connected ? (
         <button
@@ -245,7 +252,7 @@ function StepWalletInner({
           className="w-full py-2.5 rounded-lg border border-line text-sm text-fg hover:border-accent/50 hover:bg-accent/5 disabled:opacity-40 transition-all flex items-center justify-center gap-2"
         >
           <PhantomIcon />
-          {connecting ? "Conectando…" : "Conectar Phantom"}
+          {connecting ? t("connecting" as never) : t("connect_wallet" as never)}
         </button>
       ) : (
         <div className="space-y-3">
@@ -255,14 +262,14 @@ function StepWalletInner({
           </div>
 
           {status === "done" ? (
-            <div className="text-center text-sm text-accent font-mono">Wallet vinculada ✓</div>
+            <div className="text-center text-sm text-accent font-mono">{t("wallet_linked" as never)}</div>
           ) : (
             <button
               onClick={handleSign}
               disabled={status === "signing" || isPending}
               className="w-full py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
-              {status === "signing" || isPending ? "Assinando…" : "Assinar com Phantom →"}
+              {status === "signing" || isPending ? t("signing" as never) : t("sign_btn" as never)}
             </button>
           )}
         </div>
@@ -274,7 +281,7 @@ function StepWalletInner({
         onClick={onSkip}
         className="w-full py-2 text-xs text-fg-3 hover:text-fg transition-colors"
       >
-        Pular por agora
+        {t("skip_now" as never)}
       </button>
     </div>
   );
@@ -286,32 +293,11 @@ function StepWallet(props: { orgId: string; onComplete: () => void; onSkip: () =
 
 // ── Step 3: Policy ────────────────────────────────────────────────────────────
 
-const PRESETS = [
-  {
-    value: "conservative",
-    label: "Conservador",
-    emoji: "🛡️",
-    desc: "120 dias de runway · concentração ≤ 30% · somente Kamino",
-    color: "border-blue-400 text-blue-400",
-    bg: "bg-blue-400/5",
-  },
-  {
-    value: "balanced",
-    label: "Equilibrado",
-    emoji: "⚖️",
-    desc: "90 dias de runway · concentração ≤ 45% · Kamino + RWA",
-    color: "border-accent text-accent",
-    bg: "bg-accent/5",
-  },
-  {
-    value: "aggressive",
-    label: "Agressivo",
-    emoji: "🚀",
-    desc: "60 dias de runway · concentração ≤ 60% · qualquer protocolo",
-    color: "border-purple-400 text-purple-400",
-    bg: "bg-purple-400/5",
-  },
-] as const;
+const PRESET_COLORS = {
+  conservative: { color: "border-blue-400 text-blue-400", bg: "bg-blue-400/5", emoji: "🛡️" },
+  balanced:     { color: "border-accent text-accent",     bg: "bg-accent/5",    emoji: "⚖️" },
+  aggressive:   { color: "border-purple-400 text-purple-400", bg: "bg-purple-400/5", emoji: "🚀" },
+} as const;
 
 function StepPolicy({
   orgId,
@@ -320,19 +306,27 @@ function StepPolicy({
   orgId: string;
   onComplete: () => void;
 }) {
+  const t = useTranslations("onboarding");
   const [selected, setSelected] = useState<"conservative" | "balanced" | "aggressive">("balanced");
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+
+  const PRESETS = (["conservative", "balanced", "aggressive"] as const).map((key) => ({
+    value: key,
+    label: t(`presets.${key}.label` as never),
+    desc: t(`presets.${key}.desc` as never),
+    ...PRESET_COLORS[key],
+  }));
 
   async function handleSubmit() {
     setError(null);
     setIsPending(true);
     try {
       const result = await callSetup("setOrgPreset", { orgId, preset: selected });
-      if (!result.ok) setError(result.error ?? "Erro ao definir política.");
+      if (!result.ok) setError(result.error ?? t("error_set_policy" as never));
       else onComplete();
     } catch {
-      setError("Erro de conexão. Tente novamente.");
+      setError(t("error_connection" as never));
     } finally {
       setIsPending(false);
     }
@@ -340,7 +334,7 @@ function StepPolicy({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-fg-2">Escolha o perfil de risco da sua tesouraria.</p>
+      <p className="text-sm text-fg-2">{t("policy_desc" as never)}</p>
 
       <div className="space-y-2">
         {PRESETS.map((p) => (
@@ -376,7 +370,7 @@ function StepPolicy({
         disabled={isPending}
         className="w-full py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        {isPending ? "Salvando…" : "Continuar →"}
+        {isPending ? t("saving" as never) : t("continue" as never)}
       </button>
     </div>
   );
@@ -384,35 +378,36 @@ function StepPolicy({
 
 // ── Step 4: Buckets ───────────────────────────────────────────────────────────
 
-const BUCKET_KINDS = [
-  { kind: "operating", label: "Operacional", desc: "Gastos do dia a dia" },
-  { kind: "payroll", label: "Folha", desc: "Salários e benefícios" },
-  { kind: "tax", label: "Impostos", desc: "Tributos e obrigações fiscais" },
-  { kind: "emergency", label: "Reserva", desc: "Buffer de segurança" },
-  { kind: "yield", label: "Excedente", desc: "Capital para alocação em yield" },
-];
+const BUCKET_KEYS = ["operating", "payroll", "tax", "emergency", "yield"] as const;
 
 function StepBuckets({ orgId }: { orgId: string }) {
+  const t = useTranslations("onboarding");
   const router = useRouter();
   const [amounts, setAmounts] = useState<Record<string, string>>(
-    Object.fromEntries(BUCKET_KINDS.map((b) => [b.kind, ""]))
+    Object.fromEntries(BUCKET_KEYS.map((b) => [b, ""]))
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+
+  const bucketKinds = BUCKET_KEYS.map((key) => ({
+    kind: key,
+    label: t(`bucket_kinds.${key}.label` as never),
+    desc: t(`bucket_kinds.${key}.desc` as never),
+  }));
 
   async function handleFinish() {
     setError(null);
     setIsPending(true);
     try {
-      const targets = BUCKET_KINDS.map((b) => ({
+      const targets = bucketKinds.map((b) => ({
         kind: b.kind,
         amountCents: Math.round((Number(amounts[b.kind]) || 0) * 100),
       }));
       const result = await callSetup("updateBucketTargets", { orgId, targets });
-      if (!result.ok) setError(result.error ?? "Erro ao salvar.");
+      if (!result.ok) setError(result.error ?? t("error_save_buckets" as never));
       else router.push("/dashboard");
     } catch {
-      setError("Erro de conexão. Tente novamente.");
+      setError(t("error_connection" as never));
     } finally {
       setIsPending(false);
     }
@@ -420,12 +415,10 @@ function StepBuckets({ orgId }: { orgId: string }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-fg-2">
-        Defina quanto quer reservar em cada bucket. Pode ajustar depois.
-      </p>
+      <p className="text-sm text-fg-2">{t("buckets_desc" as never)}</p>
 
       <div className="space-y-3">
-        {BUCKET_KINDS.map((b) => (
+        {bucketKinds.map((b) => (
           <div key={b.kind} className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
               <div className="text-sm text-fg">{b.label}</div>
@@ -457,14 +450,14 @@ function StepBuckets({ orgId }: { orgId: string }) {
         disabled={isPending}
         className="w-full py-2.5 rounded-lg bg-accent text-bg-0 text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        {isPending ? "Salvando…" : "Acessar dashboard →"}
+        {isPending ? t("saving" as never) : t("go_to_dashboard" as never)}
       </button>
 
       <button
         onClick={() => router.push("/dashboard")}
         className="w-full py-2 text-xs text-fg-3 hover:text-fg transition-colors"
       >
-        Pular configuração de targets
+        {t("skip_targets" as never)}
       </button>
     </div>
   );
@@ -473,14 +466,15 @@ function StepBuckets({ orgId }: { orgId: string }) {
 // ── Wizard shell ──────────────────────────────────────────────────────────────
 
 function WizardInner() {
+  const t = useTranslations("onboarding");
   const [step, setStep] = useState(0);
   const [orgId, setOrgId] = useState<string | null>(null);
 
   const TITLES = [
-    "Crie sua organização",
-    "Conecte sua wallet",
-    "Escolha sua política",
-    "Configure os buckets",
+    t("step1_title" as never),
+    t("step2_title" as never),
+    t("step3_title" as never),
+    t("step4_title" as never),
   ];
 
   return (
@@ -491,7 +485,7 @@ function WizardInner() {
           <div className="text-xs font-mono text-fg-3 uppercase tracking-widest mb-1">
             TreasuryOS
           </div>
-          <div className="text-xs text-fg-3">Configuração inicial</div>
+          <div className="text-xs text-fg-3">{t("initial_setup" as never)}</div>
         </div>
 
         <div className="rounded-2xl border border-line bg-bg-1 p-6 shadow-lg shadow-bg-0/40">

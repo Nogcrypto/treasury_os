@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import {
   projectRunway,
   projectScenario,
@@ -98,7 +99,6 @@ function buildConservativeActions(snapshot: TreasurySnapshot): ScenarioAction[] 
   const kaminoCurrent = snapshot.positions.find((p) => p.adapterId === kamino.id)?.amountUsd ?? 0;
   const rwaCurrent = snapshot.positions.find((p) => p.adapterId === rwa.id)?.amountUsd ?? 0;
 
-  // Conservative: 40% Kamino, 20% RWA, keep rest liquid
   const kaminoTarget = Math.round(snapshot.totalUsd * 0.40);
   const rwaTarget = Math.round(snapshot.totalUsd * 0.20);
 
@@ -126,24 +126,26 @@ function buildConservativeActions(snapshot: TreasurySnapshot): ScenarioAction[] 
   return actions;
 }
 
-function generateNarrative(
-  actions: ScenarioAction[],
-  proj: ProjectionResult,
-  baseline: ProjectionResult,
-  bLiquidUsd: number
-): string {
-  if (actions.length === 0) return "Nenhuma alteração aplicada. Ajuste os sliders para simular cenários.";
-  const totalDeposit = actions.filter((a) => a.kind === "deposit").reduce((s, a) => s + a.amountUsd, 0);
-  const yieldDelta = proj.estimatedYieldYearUsd - baseline.estimatedYieldYearUsd;
-  const scoreDelta = Math.round(proj.complianceScore - baseline.complianceScore);
-  const parts: string[] = [];
-  if (totalDeposit > 0) parts.push(`Aloca ${fmtUSD(totalDeposit, true)} mantendo runway protegido em ${proj.protectedRunwayMonths.toFixed(1)} meses.`);
-  if (yieldDelta > 0) parts.push(`Yield estimado +${fmtUSD(yieldDelta, true)}/ano.`);
-  if (scoreDelta > 0) parts.push(`Compliance sobe para ${Math.round(proj.complianceScore)}/100.`);
-  else if (scoreDelta < 0) parts.push(`Compliance cai para ${Math.round(proj.complianceScore)}/100 — verifique violações.`);
-  if (proj.violations.length > 0) parts.push(`⚠ ${proj.violations.length} violaç${proj.violations.length > 1 ? "ões" : "ão"} detectada${proj.violations.length > 1 ? "s" : ""}.`);
-  return parts.join(" ") || "Cenário válido — nenhuma violação detectada.";
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type MetricDef = {
+  labelKey: string;
+  baseValue: (p: ProjectionResult, l: number) => number;
+  scenValue: (p: ProjectionResult, l: number) => number;
+  fmt: (n: number) => string;
+  fmtDelta: (d: number) => string;
+  higherIsBetter: boolean;
+};
+
+const METRIC_DEFS: MetricDef[] = [
+  { labelKey: "liquid_runway",    baseValue: (p) => p.liquidRunwayMonths,    scenValue: (p) => p.liquidRunwayMonths,    fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
+  { labelKey: "protected_runway", baseValue: (p) => p.protectedRunwayMonths, scenValue: (p) => p.protectedRunwayMonths, fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
+  { labelKey: "yield_year",       baseValue: (p) => p.estimatedYieldYearUsd, scenValue: (p) => p.estimatedYieldYearUsd, fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
+  { labelKey: "blended_apr",      baseValue: (p) => p.blendedAprPct,         scenValue: (p) => p.blendedAprPct,         fmt: (n) => `${n.toFixed(2)}%`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${(d * 100).toFixed(0)}bps`, higherIsBetter: true },
+  { labelKey: "concentration",    baseValue: (p) => p.topConcentrationPct,   scenValue: (p) => p.topConcentrationPct,   fmt: (n) => `${n.toFixed(1)}%`,  fmtDelta: (d) => d.toFixed(1), higherIsBetter: false },
+  { labelKey: "compliance",       baseValue: (p) => p.complianceScore,       scenValue: (p) => p.complianceScore,       fmt: (n) => `${Math.round(n)}/100`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${Math.round(d)}`, higherIsBetter: true },
+  { labelKey: "usdc_free",        baseValue: (_, l) => l,                    scenValue: (_, l) => l,                    fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
+];
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -153,12 +155,14 @@ function ProtocolCard({
   maxAmount,
   onChange,
   inWhitelist,
+  outOfWhitelistLabel,
 }: {
   adapter: typeof ADAPTERS[number];
   targetAmount: number;
   maxAmount: number;
   onChange: (v: number) => void;
   inWhitelist: boolean;
+  outOfWhitelistLabel: string;
 }) {
   const monthlyYield = targetAmount * (adapter.aprPct / 100) / 12;
   const step = Math.max(1_000, Math.round(maxAmount / 200) * 1_000);
@@ -179,7 +183,7 @@ function ProtocolCard({
         step={step}
         value={Math.min(targetAmount, maxAmount)}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`w-full mb-2 accent-accent`}
+        className="w-full mb-2 accent-accent"
         disabled={maxAmount <= 0}
       />
       <div className="flex items-center justify-between flex-wrap gap-1">
@@ -189,7 +193,7 @@ function ProtocolCard({
           {adapter.lockLabel && <span className="text-[9px] font-mono text-fg-3">· {adapter.lockLabel}</span>}
           {!inWhitelist && (
             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-warn/40 bg-warn/10 text-warn">
-              FORA WHITELIST
+              {outOfWhitelistLabel}
             </span>
           )}
         </div>
@@ -207,10 +211,14 @@ function BurnCard({
   value,
   defaultValue,
   onChange,
+  label,
+  suffix,
 }: {
   value: number;
   defaultValue: number;
   onChange: (v: number) => void;
+  label: string;
+  suffix: string;
 }) {
   const min = Math.round(defaultValue * 0.3 / 1000) * 1000;
   const max = Math.round(defaultValue * 2.5 / 1000) * 1000;
@@ -222,14 +230,14 @@ function BurnCard({
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-2">
           <span className="text-xs text-neg">↓</span>
-          <span className="text-xs font-medium text-fg">Burn projetado</span>
+          <span className="text-xs font-medium text-fg">{label}</span>
           {isOverridden && (
             <span className="text-[9px] font-mono text-warn border border-warn/30 bg-warn/5 px-1.5 rounded">
               OVERRIDE
             </span>
           )}
         </div>
-        <span className="text-xs font-semibold font-mono text-fg">{fmtUSD(value, true)}/mo</span>
+        <span className="text-xs font-semibold font-mono text-fg">{fmtUSD(value, true)}{suffix}</span>
       </div>
       <input
         type="range"
@@ -241,53 +249,9 @@ function BurnCard({
         className="w-full mb-1 accent-warn"
       />
       <div className="flex justify-between text-[9px] font-mono text-fg-3">
-        <span>{fmtUSD(min, true)}/mo</span>
-        <span>{fmtUSD(max, true)}/mo</span>
+        <span>{fmtUSD(min, true)}{suffix}</span>
+        <span>{fmtUSD(max, true)}{suffix}</span>
       </div>
-    </div>
-  );
-}
-
-type MetricDef = {
-  label: string;
-  baseValue: (p: ProjectionResult, l: number) => number;
-  scenValue: (p: ProjectionResult, l: number) => number;
-  fmt: (n: number) => string;
-  fmtDelta: (d: number) => string;
-  higherIsBetter: boolean;
-};
-
-const METRIC_DEFS: MetricDef[] = [
-  { label: "Liquid runway",    baseValue: (p) => p.liquidRunwayMonths,    scenValue: (p) => p.liquidRunwayMonths,    fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
-  { label: "Protected runway", baseValue: (p) => p.protectedRunwayMonths, scenValue: (p) => p.protectedRunwayMonths, fmt: (n) => `${n.toFixed(1)} mo`, fmtDelta: (d) => d.toFixed(1), higherIsBetter: true },
-  { label: "Yield/yr (est)",   baseValue: (p) => p.estimatedYieldYearUsd, scenValue: (p) => p.estimatedYieldYearUsd, fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
-  { label: "APR blended",      baseValue: (p) => p.blendedAprPct,         scenValue: (p) => p.blendedAprPct,         fmt: (n) => `${n.toFixed(2)}%`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${(d * 100).toFixed(0)}bps`, higherIsBetter: true },
-  { label: "Concentration",    baseValue: (p) => p.topConcentrationPct,   scenValue: (p) => p.topConcentrationPct,   fmt: (n) => `${n.toFixed(1)}%`,  fmtDelta: (d) => d.toFixed(1), higherIsBetter: false },
-  { label: "Compliance",       baseValue: (p) => p.complianceScore,       scenValue: (p) => p.complianceScore,       fmt: (n) => `${Math.round(n)}/100`, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${Math.round(d)}`, higherIsBetter: true },
-  { label: "USDC livre",       baseValue: (_, l) => l,                    scenValue: (_, l) => l,                    fmt: fmtUSD, fmtDelta: (d) => `${d >= 0 ? "+" : ""}${fmtUSD(Math.abs(d), true)}`, higherIsBetter: true },
-];
-
-function BaselineColumn({
-  proj,
-  liquidUsd,
-  policyVersion,
-}: {
-  proj: ProjectionResult;
-  liquidUsd: number;
-  policyVersion: number;
-}) {
-  return (
-    <div className="min-w-52 border-r border-line flex flex-col shrink-0">
-      <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-        <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">BASELINE · ATUAL</span>
-        <span className="text-[9px] font-mono bg-bg-2 border border-line rounded px-1.5 py-0.5 text-fg-3">v{policyVersion}</span>
-      </div>
-      {METRIC_DEFS.map((m) => (
-        <div key={m.label} className="px-4 py-3 border-b border-line last:border-0 flex items-center justify-between">
-          <span className="text-xs text-fg-3">{m.label}</span>
-          <span className="text-xs font-mono text-fg font-semibold">{m.fmt(m.baseValue(proj, liquidUsd))}</span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -310,6 +274,34 @@ function DeltaTag({
     <span className={`text-[10px] font-mono ${isGood ? "text-accent" : "text-neg"}`}>
       {fmtDelta(diff)}
     </span>
+  );
+}
+
+function BaselineColumn({
+  proj,
+  liquidUsd,
+  policyVersion,
+}: {
+  proj: ProjectionResult;
+  liquidUsd: number;
+  policyVersion: number;
+}) {
+  const t = useTranslations("simulator");
+  return (
+    <div className="min-w-52 border-r border-line flex flex-col shrink-0">
+      <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+        <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">
+          {t("baseline_label" as never)}
+        </span>
+        <span className="text-[9px] font-mono bg-bg-2 border border-line rounded px-1.5 py-0.5 text-fg-3">v{policyVersion}</span>
+      </div>
+      {METRIC_DEFS.map((m) => (
+        <div key={m.labelKey} className="px-4 py-3 border-b border-line last:border-0 flex items-center justify-between">
+          <span className="text-xs text-fg-3">{t(`metrics.${m.labelKey}` as never)}</span>
+          <span className="text-xs font-mono text-fg font-semibold">{m.fmt(m.baseValue(proj, liquidUsd))}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -336,6 +328,7 @@ function ScenarioColumn({
   violations: typeof proj.violations;
   onClick: () => void;
 }) {
+  const t = useTranslations("simulator");
   return (
     <div
       onClick={onClick}
@@ -350,7 +343,7 @@ function ScenarioColumn({
       <div className={`px-4 py-3 border-b border-line flex items-center justify-between ${isRecommended && isSelected ? "border-accent/20" : ""}`}>
         <div>
           <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">
-            CENÁRIO {id.toUpperCase()} · {sublabel}
+            {t("scenario_col_label" as never)} {id.toUpperCase()} · {sublabel}
           </span>
           {isRecommended && (
             <span className="ml-1 text-[9px] text-accent">★</span>
@@ -366,7 +359,7 @@ function ScenarioColumn({
         const bVal = m.baseValue(baseline, baselineLiquidUsd);
         const sVal = m.scenValue(proj, liquidUsd);
         return (
-          <div key={m.label} className="px-4 py-3 border-b border-line last:border-0 text-right">
+          <div key={m.labelKey} className="px-4 py-3 border-b border-line last:border-0 text-right">
             <div className="text-xs font-mono text-fg font-semibold">{m.fmt(sVal)}</div>
             <DeltaTag baseline={bVal} value={sVal} fmtDelta={m.fmtDelta} higherIsBetter={m.higherIsBetter} />
           </div>
@@ -381,17 +374,19 @@ function BeforeAfterBar({
   positions,
   liquidUsd,
   totalUsd,
+  liquidUsdLabel,
 }: {
   label: string;
   positions: TreasurySnapshot["positions"];
   liquidUsd: number;
   totalUsd: number;
+  liquidUsdLabel: string;
 }) {
   if (totalUsd <= 0) return null;
 
   const segments: { id: string; label: string; pct: number; color: string }[] = [];
   if (liquidUsd > 0) {
-    segments.push({ id: "liquid", label: "USDC LIVRE · 0% YIELD", pct: liquidUsd / totalUsd, color: "bg-bg-3" });
+    segments.push({ id: "liquid", label: liquidUsdLabel, pct: liquidUsd / totalUsd, color: "bg-bg-3" });
   }
   for (const pos of positions) {
     if (pos.amountUsd <= 0) continue;
@@ -431,16 +426,16 @@ export interface SimulatorProps {
 }
 
 export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
+  const t = useTranslations("simulator");
   const defaultBurn = useMemo(() => estimateMonthlyBurnUsd(snapshot), [snapshot]);
 
-  // Scenario B: user-controlled targets (absolute allocation per adapter)
   const [targets, setTargets] = useState<Record<AdapterId, number>>(() => {
-    const t: Record<string, number> = {};
+    const tgt: Record<string, number> = {};
     for (const a of ADAPTERS) {
       const pos = snapshot.positions.find((p) => p.adapterId === a.id);
-      t[a.id] = pos?.amountUsd ?? 0;
+      tgt[a.id] = pos?.amountUsd ?? 0;
     }
-    return t as Record<AdapterId, number>;
+    return tgt as Record<AdapterId, number>;
   });
   const [burnSlider, setBurnSlider] = useState(defaultBurn);
   const [selected, setSelected] = useState<"a" | "b">("b");
@@ -450,21 +445,16 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
 
   const whitelist = useMemo(() => getWhitelist(policy), [policy]);
 
-  // Scenario A: conservative, auto-generated
   const scenarioAActions = useMemo(() => buildConservativeActions(snapshot), [snapshot]);
-
-  // Scenario B: from sliders
   const scenarioBActions = useMemo(
     () => buildActions(snapshot, targets),
     [snapshot, targets]
   );
 
-  // Projections
   const baseline = useMemo(() => projectRunway(snapshot, policy, burnSlider), [snapshot, policy, burnSlider]);
   const scenarioA = useMemo(() => projectScenario(snapshot, policy, scenarioAActions, burnSlider), [snapshot, policy, scenarioAActions, burnSlider]);
   const scenarioB = useMemo(() => projectScenario(snapshot, policy, scenarioBActions, burnSlider), [snapshot, policy, scenarioBActions, burnSlider]);
 
-  // Post-scenario liquid for visualization + USDC livre metric
   const { liquidUsd: aLiquidUsd, positions: aPositions } = useMemo(
     () => applyScenarioActions(snapshot, scenarioAActions),
     [snapshot, scenarioAActions]
@@ -474,18 +464,44 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
     [snapshot, scenarioBActions]
   );
 
-  const narrative = useMemo(
-    () => generateNarrative(scenarioBActions, scenarioB, baseline, bLiquidUsd),
-    [scenarioBActions, scenarioB, baseline, bLiquidUsd]
-  );
+  const narrative = useMemo(() => {
+    const actions = scenarioBActions;
+    const proj = scenarioB;
+    if (actions.length === 0) return t("no_changes" as never);
+    const totalDeposit = actions.filter((a) => a.kind === "deposit").reduce((s, a) => s + a.amountUsd, 0);
+    const yieldDelta = proj.estimatedYieldYearUsd - baseline.estimatedYieldYearUsd;
+    const scoreDelta = Math.round(proj.complianceScore - baseline.complianceScore);
+    const parts: string[] = [];
+    if (totalDeposit > 0) {
+      parts.push(
+        t("narrative.allocates" as never, {
+          amount: fmtUSD(totalDeposit, true),
+          months: proj.protectedRunwayMonths.toFixed(1),
+        } as never)
+      );
+    }
+    if (yieldDelta > 0) {
+      parts.push(t("narrative.yield_delta" as never, { amount: fmtUSD(yieldDelta, true) } as never));
+    }
+    if (scoreDelta > 0) {
+      parts.push(t("narrative.compliance_up" as never, { score: Math.round(proj.complianceScore) } as never));
+    } else if (scoreDelta < 0) {
+      parts.push(t("narrative.compliance_down" as never, { score: Math.round(proj.complianceScore) } as never));
+    }
+    if (proj.violations.length > 0) {
+      parts.push(t("narrative.violations" as never, { count: proj.violations.length } as never));
+    }
+    return parts.join(" ") || t("scenario_valid" as never);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarioBActions, scenarioB, baseline, bLiquidUsd, t]);
 
   function handleReset() {
-    const t: Record<string, number> = {};
+    const tgt: Record<string, number> = {};
     for (const a of ADAPTERS) {
       const pos = snapshot.positions.find((p) => p.adapterId === a.id);
-      t[a.id] = pos?.amountUsd ?? 0;
+      tgt[a.id] = pos?.amountUsd ?? 0;
     }
-    setTargets(t as Record<AdapterId, number>);
+    setTargets(tgt as Record<AdapterId, number>);
     setBurnSlider(defaultBurn);
     setApproved(false);
     setApproveError(null);
@@ -494,34 +510,41 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
   function handleApprove() {
     if (approved || scenarioBActions.length === 0) return;
     setApproveError(null);
-    const rationale = generateNarrative(scenarioBActions, scenarioB, baseline, bLiquidUsd);
     startTransition(async () => {
-      const res = await approveScenario(scenarioBActions, rationale);
+      const res = await approveScenario(scenarioBActions, narrative);
       if (res.ok) setApproved(true);
-      else setApproveError(res.error ?? "Erro ao aprovar");
+      else setApproveError(res.error ?? t("error_approve" as never));
     });
   }
 
   const hasChanges = scenarioBActions.length > 0;
-  // Max per adapter: existing position + all available liquid
+
   function maxForAdapter(adapterId: AdapterId): number {
     const pos = snapshot.positions.find((p) => p.adapterId === adapterId);
     return (pos?.amountUsd ?? 0) + snapshot.liquidUsd;
   }
+
+  const liquidUsdLabel = t("liquid_usdc_label" as never);
+  const outOfWhitelistLabel = t("out_of_whitelist" as never);
+  const burnLabel = t("monthly_burn_label" as never);
+  const burnSuffix = t("monthly_burn_suffix" as never);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-line flex items-start justify-between gap-4 shrink-0">
         <div className="min-w-0">
-          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-widest mb-1">WORKSPACE / SIMULADOR</div>
-          <h1 className="text-base font-semibold text-fg mb-0.5">Cenários · simulate_scenario()</h1>
+          <div className="text-[9px] font-mono text-fg-3 uppercase tracking-widest mb-1">
+            {t("breadcrumb" as never)}
+          </div>
+          <h1 className="text-base font-semibold text-fg mb-0.5">
+            {t("title" as never)} · simulate_scenario()
+          </h1>
           <p className="text-[11px] text-fg-3 max-w-lg leading-relaxed">
-            Função pura{" "}
+            {t("description" as never)}{" "}
             <code className="font-mono bg-bg-2 border border-line rounded px-1 py-px text-fg-2">
               projectRunway(snapshot, obligations, policy)
-            </code>{" "}
-            recomputada em tempo real. Sem persistir. Compare baseline com até 2 cenários.
+            </code>
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -529,7 +552,7 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
             onClick={handleReset}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs text-fg-3 hover:text-fg hover:border-accent/40 transition-colors"
           >
-            ↺ Reset
+            {t("reset_btn" as never)}
           </button>
           {approveError && <span className="text-xs text-neg">{approveError}</span>}
           <button
@@ -537,7 +560,9 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
             disabled={!hasChanges || approved}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-bg-0 text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-all"
           >
-            {approved ? "✓ Aprovado" : `✓ Aprovar cenário ${selected.toUpperCase()}`}
+            {approved
+              ? t("approved_msg" as never)
+              : `${t("approve_btn" as never)} ${selected.toUpperCase()}`}
           </button>
         </div>
       </div>
@@ -547,8 +572,12 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
         {/* Left: Variables panel */}
         <div className="w-56 border-r border-line flex flex-col overflow-y-auto shrink-0">
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">⊙ Variáveis</span>
-            <span className="text-[9px] font-mono text-accent uppercase">CENÁRIO B</span>
+            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">
+              ⊙ {t("variables_label" as never)}
+            </span>
+            <span className="text-[9px] font-mono text-accent uppercase">
+              {t("scenario_b_label" as never)}
+            </span>
           </div>
 
           {ADAPTERS.map((adapter) => (
@@ -557,8 +586,9 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
               adapter={adapter}
               targetAmount={targets[adapter.id] ?? 0}
               maxAmount={maxForAdapter(adapter.id)}
-              onChange={(v) => setTargets((t) => ({ ...t, [adapter.id]: v }))}
+              onChange={(v) => setTargets((prev) => ({ ...prev, [adapter.id]: v }))}
               inWhitelist={!whitelist || whitelist.includes(adapter.id)}
+              outOfWhitelistLabel={outOfWhitelistLabel}
             />
           ))}
 
@@ -566,6 +596,8 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
             value={burnSlider}
             defaultValue={defaultBurn}
             onChange={setBurnSlider}
+            label={burnLabel}
+            suffix={burnSuffix}
           />
         </div>
 
@@ -578,7 +610,7 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
           />
           <ScenarioColumn
             id="a"
-            sublabel="CONSERVADOR"
+            sublabel={t("scenarios.conservative_label" as never)}
             proj={scenarioA}
             baseline={baseline}
             liquidUsd={aLiquidUsd}
@@ -589,7 +621,7 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
           />
           <ScenarioColumn
             id="b"
-            sublabel="RECOMENDADO"
+            sublabel={t("scenarios.recommended_label" as never)}
             proj={scenarioB}
             baseline={baseline}
             liquidUsd={bLiquidUsd}
@@ -606,26 +638,34 @@ export function Simulator({ snapshot, policy, policyVersion }: SimulatorProps) {
       <div className="border-t border-line shrink-0">
         <div className="px-5 py-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">⊙ Antes / Depois — runway protegido</span>
-            <span className="text-[9px] font-mono text-fg-3 uppercase">CENÁRIO {selected.toUpperCase()} APLICADO</span>
+            <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider">
+              ⊙ {t("before_after_title" as never)}
+            </span>
+            <span className="text-[9px] font-mono text-fg-3 uppercase">
+              {t("after_scenario_label" as never, { id: selected.toUpperCase() } as never)}
+            </span>
           </div>
           <div className="space-y-2.5">
             <BeforeAfterBar
-              label="ANTES (ATUAL)"
+              label={t("before_label" as never)}
               positions={snapshot.positions}
               liquidUsd={snapshot.liquidUsd}
               totalUsd={snapshot.totalUsd}
+              liquidUsdLabel={liquidUsdLabel}
             />
             <BeforeAfterBar
-              label={`DEPOIS (CENÁRIO ${selected.toUpperCase()})`}
+              label={`${t("after_label" as never)} (${t("scenario_col_label" as never)} ${selected.toUpperCase()})`}
               positions={selected === "b" ? bPositions : aPositions}
               liquidUsd={selected === "b" ? bLiquidUsd : aLiquidUsd}
               totalUsd={snapshot.totalUsd}
+              liquidUsdLabel={liquidUsdLabel}
             />
           </div>
         </div>
         <div className="px-5 py-3 border-t border-line flex items-start gap-4">
-          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider shrink-0 mt-0.5">NARRATIVA DO AGENTE</span>
+          <span className="text-[9px] font-mono text-fg-3 uppercase tracking-wider shrink-0 mt-0.5">
+            {t("narrative_label" as never)}
+          </span>
           <p className="text-[11px] text-fg-2 leading-relaxed">{narrative}</p>
         </div>
       </div>

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { takeSnapshot } from "@/app/(app)/dashboard/actions";
 
 export function SnapshotButton() {
+  const t = useTranslations("dashboard.snapshot");
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<"idle" | "ok" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -18,7 +20,7 @@ export function SnapshotButton() {
         setTimeout(() => setStatus("idle"), 3000);
       } else {
         setStatus("error");
-        setErrorMsg(result.error ?? "Erro desconhecido");
+        setErrorMsg(result.error ?? t("error_unknown" as never));
       }
     });
   }
@@ -29,7 +31,7 @@ export function SnapshotButton() {
         <span className="text-xs text-neg">{errorMsg}</span>
       )}
       {status === "ok" && (
-        <span className="text-xs text-accent">Snapshot capturado!</span>
+        <span className="text-xs text-accent">{t("success" as never)}</span>
       )}
       <button
         onClick={handleClick}
@@ -39,7 +41,7 @@ export function SnapshotButton() {
         {isPending ? (
           <>
             <span className="inline-block w-3 h-3 border border-fg-3 border-t-transparent rounded-full animate-spin" />
-            Capturando…
+            {t("taking" as never)}
           </>
         ) : (
           <>
@@ -47,7 +49,7 @@ export function SnapshotButton() {
               <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.5" />
               <circle cx="6" cy="6" r="2" fill="currentColor" />
             </svg>
-            Snapshot
+            {t("take" as never)}
           </>
         )}
       </button>
