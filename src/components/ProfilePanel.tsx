@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useSolana } from "@/lib/solana/wallet";
 
 interface Props {
@@ -28,6 +29,7 @@ async function callLinkWallet(data: {
 }
 
 function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddress?: string }) {
+  const t = useTranslations("profile");
   const { publicKey, connected, connecting, connect, signInWithSolana } = useSolana();
   const [address, setAddress] = useState(initialAddress);
   const [status, setStatus] = useState<"idle" | "signing" | "done" | "error">("idle");
@@ -39,7 +41,7 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
     return (
       <div className="space-y-2">
         <div className="text-xs text-[oklch(0.6_0.02_240)] font-mono uppercase tracking-wider">
-          Wallet Solana
+          {t("wallet_title")}
         </div>
         <div className="flex items-center gap-2 rounded-lg border border-[oklch(0.82_0.18_148)/30] bg-[oklch(0.82_0.18_148)/8] px-3 py-2.5">
           <span className="w-2 h-2 rounded-full bg-[oklch(0.82_0.18_148)] shrink-0" />
@@ -60,7 +62,7 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
     const result = await signInWithSolana(nonce);
     if (!result) {
       setStatus("error");
-      setError("Assinatura cancelada.");
+      setError(t("sign_cancel"));
       return;
     }
     setPending(true);
@@ -68,7 +70,7 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
       const res = await callLinkWallet({ orgId, ...result });
       if (!res.ok) {
         setStatus("error");
-        setError(res.error ?? "Falha ao vincular.");
+        setError(res.error ?? t("link_fail"));
       } else {
         setStatus("done");
         setAddress(result.address);
@@ -76,7 +78,7 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
       }
     } catch {
       setStatus("error");
-      setError("Erro de conexão.");
+      setError(t("connect_error"));
     } finally {
       setPending(false);
     }
@@ -85,10 +87,10 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
   return (
     <div className="space-y-2">
       <div className="text-xs text-[oklch(0.6_0.02_240)] font-mono uppercase tracking-wider">
-        Wallet Solana
+        {t("wallet_title")}
       </div>
       <p className="text-xs text-[oklch(0.5_0.02_240)]">
-        Nenhuma wallet vinculada. Conecte seu Phantom para assinar transações na devnet.
+        {t("wallet_no_linked")}
       </p>
 
       {!connected ? (
@@ -98,11 +100,11 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
           className="w-full py-2 rounded-lg border border-[oklch(0.28_0.006_240)] text-sm text-white hover:border-[oklch(0.82_0.18_148)/50] hover:bg-[oklch(0.82_0.18_148)/5] disabled:opacity-40 transition-all flex items-center justify-center gap-2"
         >
           <PhantomIcon />
-          {connecting ? "Conectando…" : "Conectar Phantom"}
+          {connecting ? t("connecting") : t("connect_phantom")}
         </button>
       ) : status === "done" ? (
         <div className="text-center text-sm text-[oklch(0.82_0.18_148)] font-mono py-1">
-          Wallet vinculada ✓
+          {t("linked")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -115,7 +117,7 @@ function WalletSection({ orgId, initialAddress }: { orgId: string; initialAddres
             disabled={status === "signing" || pending}
             className="w-full py-2 rounded-lg bg-[oklch(0.82_0.18_148)] text-[oklch(0.14_0.006_240)] text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-all"
           >
-            {status === "signing" || pending ? "Assinando…" : "Assinar com Phantom →"}
+            {status === "signing" || pending ? t("signing") : t("sign_btn")}
           </button>
         </div>
       )}
@@ -150,9 +152,11 @@ function initials(name?: string, email?: string) {
 }
 
 export function ProfilePanel({ orgId, orgName, userName, email, walletAddress, onClose }: Props) {
+  const t = useTranslations("profile");
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-start sm:justify-start p-0 sm:p-4 sm:pl-[220px]"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-start sm:justify-start p-0 sm:p-4 sm:pl-55"
       onClick={onClose}
     >
       <div
@@ -161,7 +165,7 @@ export function ProfilePanel({ orgId, orgName, userName, email, walletAddress, o
       >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-white">Perfil</span>
+          <span className="text-sm font-semibold text-white">{t("title")}</span>
           <button
             onClick={onClose}
             className="text-[oklch(0.5_0.02_240)] hover:text-white transition-colors text-lg leading-none"
@@ -186,7 +190,7 @@ export function ProfilePanel({ orgId, orgName, userName, email, walletAddress, o
         {/* Org */}
         {orgName && (
           <div className="rounded-lg bg-[oklch(0.22_0.006_240)] border border-[oklch(0.28_0.006_240)] px-3 py-2 flex items-center gap-2">
-            <span className="text-xs text-[oklch(0.5_0.02_240)]">Organização</span>
+            <span className="text-xs text-[oklch(0.5_0.02_240)]">{t("org_label")}</span>
             <span className="ml-auto text-xs font-medium text-white truncate">{orgName}</span>
           </div>
         )}

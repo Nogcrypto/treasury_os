@@ -13,10 +13,12 @@ export interface TreasuryAlert {
 
 export function computeAlerts(
   snapshot: TreasurySnapshot,
-  policy: Policy
+  policy: Policy,
+  locale?: string
 ): TreasuryAlert[] {
   const projection = projectRunway(snapshot, policy);
   const alerts: TreasuryAlert[] = [];
+  const isPt = locale === "pt";
 
   for (const v of projection.violations) {
     const type: AlertType =
@@ -25,7 +27,7 @@ export function computeAlerts(
         : v.ruleId === "MAX_CONCENTRATION_PCT"
         ? "concentration"
         : "policy";
-    alerts.push({ type, severity: v.severity, title: alertTitle(type), message: v.message });
+    alerts.push({ type, severity: v.severity, title: type, message: v.message });
   }
 
   // Upcoming obligations in < 7 days
@@ -35,23 +37,18 @@ export function computeAlerts(
       (new Date(obl.dueDateIso).getTime() - now) / 86_400_000
     );
     if (daysLeft > 0 && daysLeft <= 7) {
+      const amount = obl.amountUsd.toLocaleString(isPt ? "pt-BR" : "en-US");
+      const msg = isPt
+        ? `"${obl.label}" de $${amount} vence em ${daysLeft} dia${daysLeft > 1 ? "s" : ""}`
+        : `"${obl.label}" of $${amount} due in ${daysLeft} day${daysLeft > 1 ? "s" : ""}`;
       alerts.push({
         type: "obligation",
         severity: daysLeft <= 2 ? "block" : "warn",
-        title: "Obrigação próxima",
-        message: `"${obl.label}" de $${obl.amountUsd.toLocaleString()} vence em ${daysLeft} dia${daysLeft > 1 ? "s" : ""}`,
+        title: "obligation",
+        message: msg,
       });
     }
   }
 
   return alerts;
-}
-
-function alertTitle(type: AlertType): string {
-  switch (type) {
-    case "runway":        return "Runway abaixo da meta";
-    case "concentration": return "Concentração de risco";
-    case "obligation":    return "Obrigação próxima";
-    case "policy":        return "Violação de política";
-  }
 }

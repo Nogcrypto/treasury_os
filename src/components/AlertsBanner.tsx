@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { TreasuryAlert } from "@/lib/rules-engine/alerts";
 
 const SEVERITY_STYLES: Record<string, Record<string, string>> = {
@@ -26,6 +29,8 @@ interface AlertsBannerProps {
 }
 
 export function AlertsBanner({ alerts }: AlertsBannerProps) {
+  const t = useTranslations("alerts");
+
   if (alerts.length === 0) return null;
 
   return (
@@ -43,12 +48,12 @@ export function AlertsBanner({ alerts }: AlertsBannerProps) {
             </span>
             <div className="flex-1 min-w-0">
               <div className={`text-xs font-mono font-semibold uppercase tracking-wider ${textCls}`}>
-                {alert.title}
+                {t(alert.type as never)}
               </div>
               <div className="text-sm text-fg-2 mt-0.5">{alert.message}</div>
             </div>
             <div className={`text-xs font-mono px-1.5 py-0.5 rounded border ${textCls} border-current opacity-60 shrink-0`}>
-              {alert.severity === "block" ? "BLOCK" : "WARN"}
+              {alert.severity === "block" ? t("block") : t("warn")}
             </div>
           </div>
         );

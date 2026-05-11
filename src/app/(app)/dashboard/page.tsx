@@ -1,4 +1,4 @@
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
 import { memberships, snapshots, policies, buckets, obligations } from "@/lib/db/schema";
@@ -24,8 +24,10 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
+  const locale = await getLocale();
+
   if (isDemoUser(user.email)) {
-    return <DemoDashboard />;
+    return <DemoDashboard locale={locale} />;
   }
 
   const membership = await db.query.memberships.findFirst({
@@ -60,7 +62,7 @@ export default async function DashboardPage() {
     snap = buildSnapshot(orgId, latestSnapshot, orgBuckets, orgObligations);
     const policy = buildPolicy(activePolicy);
     projection = projectRunway(snap, policy);
-    alerts = computeAlerts(snap, policy);
+    alerts = computeAlerts(snap, policy, locale);
   }
 
   const totals = latestSnapshot
@@ -264,9 +266,9 @@ async function DashboardLayout({
 
 // ── Demo dashboard ────────────────────────────────────────────────────────────
 
-async function DemoDashboard() {
+async function DemoDashboard({ locale }: { locale: string }) {
   const tBuckets = await getTranslations("dashboard.buckets");
-  const { snap, projection, alerts, totals, positions, snapshotAge, orgName } = getDemoDashboardData();
+  const { snap, projection, alerts, totals, positions, snapshotAge, orgName } = getDemoDashboardData(locale);
 
   const demoBuckets = snap.buckets.map((b, i) => ({
     id: `demo-b-${i}`,

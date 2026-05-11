@@ -143,19 +143,24 @@ export function getDemoProjection(): ProjectionResult {
 
 // ── Alerts ────────────────────────────────────────────────────────────────────
 
-export function getDemoAlerts(): TreasuryAlert[] {
+export function getDemoAlerts(locale?: string): TreasuryAlert[] {
+  const isPt = locale === "pt";
   return [
     {
       type: "obligation",
       severity: "warn",
-      title: "Obrigação próxima",
-      message: "Folha de pagamento de $85.000 vence em 6 dias.",
+      title: "obligation",
+      message: isPt
+        ? '"Folha de Pagamento" de $85.000 vence em 6 dias.'
+        : '"Payroll" of $85,000 due in 6 days.',
     },
     {
       type: "concentration",
       severity: "warn",
-      title: "Concentração em Kamino",
-      message: "62% do capital alocado está em um único protocolo. Considere diversificar.",
+      title: "concentration",
+      message: isPt
+        ? "62% do capital alocado está em um único protocolo. Considere diversificar."
+        : "62% of deployed capital is in a single protocol. Consider diversifying.",
     },
   ];
 }
@@ -253,10 +258,10 @@ export function getDemoPolicyVersions(): Array<{
 
 // ── Convenience: tudo junto para o dashboard ──────────────────────────────────
 
-export function getDemoDashboardData() {
+export function getDemoDashboardData(locale?: string) {
   const snap = getDemoSnapshot();
   const projection = getDemoProjection();
-  const alerts = getDemoAlerts();
+  const alerts = getDemoAlerts(locale);
   return {
     snap,
     projection,

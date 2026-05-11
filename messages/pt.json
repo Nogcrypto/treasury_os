@@ -748,5 +748,29 @@
     "install_phantom": "Instalar Phantom",
     "connecting": "Conectando…",
     "connect_wallet": "Conectar Wallet"
+  },
+  "alerts": {
+    "runway": "Runway Abaixo da Meta",
+    "concentration": "Risco de Concentração",
+    "obligation": "Obrigação Próxima",
+    "policy": "Violação de Política",
+    "warn": "WARN",
+    "block": "BLOCK",
+    "obligation_msg_one": "{label} de ${amount} vence em {days} dia",
+    "obligation_msg_other": "{label} de ${amount} vence em {days} dias"
+  },
+  "profile": {
+    "title": "Perfil",
+    "org_label": "Organização",
+    "wallet_title": "WALLET SOLANA",
+    "wallet_no_linked": "Nenhuma wallet vinculada. Conecte seu Phantom para assinar transações na devnet.",
+    "connect_phantom": "Conectar Phantom",
+    "connecting": "Conectando…",
+    "sign_cancel": "Assinatura cancelada.",
+    "link_fail": "Falha ao vincular.",
+    "connect_error": "Erro de conexão.",
+    "linked": "Wallet vinculada ✓",
+    "signing": "Assinando…",
+    "sign_btn": "Assinar com Phantom →"
   }
 }
