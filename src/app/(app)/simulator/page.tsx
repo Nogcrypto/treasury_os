@@ -59,6 +59,14 @@ export default async function SimulatorPage() {
   }
 
   const totals = latestSnapshot.totalsJson as { totalUsd: number; liquidUsd: number };
+
+  // Read saved bucket allocations; fall back gracefully for old snapshots
+  const rawBuckets = latestSnapshot.bucketsJson;
+  const savedBuckets = Array.isArray(rawBuckets)
+    ? (rawBuckets as { kind: string; balanceUsd: number }[])
+    : [];
+  const balanceByKind = new Map(savedBuckets.map((b) => [b.kind, b.balanceUsd]));
+
   const snapshot: TreasurySnapshot = {
     id: latestSnapshot.id,
     orgId,
@@ -68,7 +76,7 @@ export default async function SimulatorPage() {
     positions: (latestSnapshot.positionsJson as unknown[]) as TreasurySnapshot["positions"],
     buckets: orgBuckets.map((b) => ({
       kind: b.kind as TreasurySnapshot["buckets"][number]["kind"],
-      balanceUsd: 0,
+      balanceUsd: balanceByKind.get(b.kind) ?? 0,
       targetUsd: b.targetAmountCents / 100,
     })),
     obligations: orgObs.map((o) => ({

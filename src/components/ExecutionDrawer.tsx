@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { applyScenarioActions, projectRunway, estimateMonthlyBurnUsd } from "@/lib/rules-engine/projections";
+import type { TreasurySnapshot, Policy, ScenarioAction } from "@/lib/rules-engine/types";
 
 export type IntentStatus =
   | "draft" | "proposed" | "approved" | "queued"
@@ -21,6 +23,8 @@ export interface IntentRow {
 interface ExecutionDrawerProps {
   intents: IntentRow[];
   walletAddress?: string;
+  snapshot: TreasurySnapshot | null;
+  policy: Policy | null;
   onApprove: (intentId: string) => Promise<void>;
   onExecute:  (intentId: string) => Promise<void>;
   onReject:   (intentId: string) => Promise<void>;
@@ -119,20 +123,78 @@ function deriveTimestamps(intent: IntentRow) {
 
 // ── Rules validation ──────────────────────────────────────────────────────────
 
-function rulesValidation(intent: IntentRow) {
-  const p = intent.paramsJson as { adapterId?: string; amountUsd?: number; validation?: { checks: { rule: string; pass: boolean; detail: string }[] } };
-  if (p.validation) return p.validation.checks;
-  // Synthetic checks derived from params
-  const amount = p.amountUsd ?? 0;
-  return [
-    { rule: "MIN_RUNWAY_DAYS",       pass: true,  detail: "runway pós-tx 4.0 mo > 4.0 ✓" },
-    { rule: "MAX_CONCENTRATION_PCT", pass: amount < 300_000, detail: `${p.adapterId?.includes("kamino") ? "Kamino" : "RWA"} ${Math.min(38, Math.round(amount / 8_000))}% < 45% ✓` },
-    { rule: "ALLOCATION_WHITELIST",  pass: true,  detail: `${p.adapterId?.split("-")[0]} ⊂ whitelist ✓` },
-    { rule: "YIELD_ONLY_EXCESS",     pass: true,  detail: "excedente > alvo de buckets ✓" },
-    { rule: "MIN_LIQUID_PCT",        pass: true,  detail: "liquid 52% > 50% ✓" },
-    { rule: "BUCKET_TARGET",         pass: true,  detail: "operating 240k ≈ target ✓" },
-    { rule: "REBALANCE_TRIGGER",     pass: true,  detail: "desvio 8.2% < 10% threshold ✓" },
-  ];
+type CheckItem = { rule: string; pass: boolean; detail: string };
+
+function computeRulesValidation(
+  intent: IntentRow,
+  snapshot: TreasurySnapshot | null | undefined,
+  policy: Policy | null | undefined,
+): CheckItem[] {
+  if (!snapshot || !policy) return [];
+
+  const params = intent.paramsJson as { adapterId?: string; amountUsd?: number };
+  const adapterId = params.adapterId ?? "";
+  const amountUsd = params.amountUsd ?? 0;
+  const isKamino = adapterId.includes("kamino");
+
+  // Treat rebalance as deposit for simulation (conservative — shows post-deploy state)
+  const actionKind: ScenarioAction["kind"] =
+    intent.kind === "withdraw" ? "withdraw" : "deposit";
+
+  const action: ScenarioAction = {
+    kind: actionKind,
+    adapterId,
+    amountUsd,
+    meta: {
+      protocol: isKamino ? "Kamino" : "Mock RWA",
+      aprPct:   isKamino ? 5.84 : 4.82,
+      riskTier: isKamino ? 1 : 2,
+      unlockDays: isKamino ? 0 : 1,
+    },
+  };
+
+  const { liquidUsd, positions } = applyScenarioActions(snapshot, [action]);
+  const simSnap: TreasurySnapshot = { ...snapshot, liquidUsd, positions };
+  const projection = projectRunway(simSnap, policy);
+  const violationMap = new Map(projection.violations.map((v) => [v.ruleId, v]));
+  const monthlyBurn = estimateMonthlyBurnUsd(simSnap);
+
+  return policy.rules
+    .filter((r) => r.enabled)
+    .map((r): CheckItem => {
+      const v = violationMap.get(r.id);
+      if (v) return { rule: r.id, pass: false, detail: v.message };
+
+      switch (r.id) {
+        case "MIN_RUNWAY_DAYS": {
+          const minDays = (r.params.days as number) ?? 120;
+          const protectedUsd = simSnap.buckets
+            .filter((b) => ["emergency", "operating", "payroll", "tax"].includes(b.kind))
+            .reduce((s, b) => s + b.balanceUsd, 0);
+          const months = monthlyBurn > 0 ? protectedUsd / monthlyBurn : 999;
+          return { rule: r.id, pass: true, detail: `runway ${months.toFixed(1)} mo ≥ ${(minDays / 30).toFixed(1)} mo ✓` };
+        }
+        case "MAX_CONCENTRATION_PCT": {
+          const maxPct = (r.params.pct as number) ?? 45;
+          return { rule: r.id, pass: true, detail: `${projection.topConcentrationPct.toFixed(1)}% < ${maxPct}% ✓` };
+        }
+        case "MIN_LIQUID_PCT": {
+          const minPct = (r.params.pct as number) ?? 50;
+          const liquidPct = simSnap.totalUsd > 0 ? (simSnap.liquidUsd / simSnap.totalUsd) * 100 : 100;
+          return { rule: r.id, pass: true, detail: `liquid ${liquidPct.toFixed(1)}% ≥ ${minPct}% ✓` };
+        }
+        case "ALLOCATION_WHITELIST":
+          return { rule: r.id, pass: true, detail: `${adapterId} ⊂ whitelist ✓` };
+        case "YIELD_ONLY_EXCESS":
+          return { rule: r.id, pass: true, detail: "excedente ≥ reserva de emergência ✓" };
+        case "BUCKET_TARGET":
+          return { rule: r.id, pass: true, detail: "buckets dentro do target ✓" };
+        case "REBALANCE_TRIGGER":
+          return { rule: r.id, pass: true, detail: "desvio de buckets < threshold ✓" };
+        default:
+          return { rule: r.id, pass: true, detail: "✓" };
+      }
+    });
 }
 
 // ── Create intent modal ───────────────────────────────────────────────────────
@@ -209,6 +271,8 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: Exe
 function IntentPanel({
   intent,
   walletAddress,
+  snapshot,
+  policy,
   onApprove,
   onExecute,
   onReject,
@@ -216,6 +280,8 @@ function IntentPanel({
 }: {
   intent: IntentRow;
   walletAddress?: string;
+  snapshot: TreasurySnapshot | null;
+  policy: Policy | null;
   onApprove: () => Promise<void>;
   onExecute: () => Promise<void>;
   onReject: () => Promise<void>;
@@ -229,7 +295,7 @@ function IntentPanel({
   const timestamps = deriveTimestamps(intent);
   const currentIdx = stateIndex(intent.status as IntentStatus);
   const isRejected = ["rejected", "failed", "expired"].includes(intent.status);
-  const checks = rulesValidation(intent);
+  const checks = computeRulesValidation(intent, snapshot, policy);
   const passCount = checks.filter((c) => c.pass).length;
   const title = `${intent.kind === "deposit" ? "Depositar" : intent.kind === "withdraw" ? "Sacar" : "Rebalancear"} ${params.amountUsd ? fmtUSD(params.amountUsd) : ""} ${params.adapterId?.includes("kamino") ? "em Kamino" : params.adapterId?.includes("rwa") ? "em RWA" : ""}`.trim();
   const statusDisplay = displayStatus(intent);
@@ -329,19 +395,29 @@ function IntentPanel({
       <div className="px-5 py-4 border-b border-line shrink-0">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] font-mono text-fg-3 uppercase tracking-wider">⊙ Validação rules-engine</div>
-          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${passCount === checks.length ? "text-accent border-accent/25 bg-accent/5" : "text-warn border-warn/25 bg-warn/5"}`}>
-            {passCount}/{checks.length} OK
-          </span>
+          {checks.length > 0 && (
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${passCount === checks.length ? "text-accent border-accent/25 bg-accent/5" : "text-neg border-neg/25 bg-neg/5"}`}>
+              {passCount}/{checks.length} OK
+            </span>
+          )}
         </div>
-        <div className="space-y-1.5">
-          {checks.map((c) => (
-            <div key={c.rule} className="flex items-start gap-2 text-[11px]">
-              <span className={`shrink-0 mt-px ${c.pass ? "text-accent" : "text-neg"}`}>{c.pass ? "✓" : "✕"}</span>
-              <span className="font-mono text-fg-3">{c.rule}</span>
-              <span className="text-fg-3 ml-1 truncate">· {c.detail}</span>
-            </div>
-          ))}
-        </div>
+        {checks.length === 0 ? (
+          <p className="text-[11px] text-fg-3 font-mono">
+            {!snapshot
+              ? "Sem snapshot — tire um snapshot no Dashboard para validar."
+              : "Sem política ativa — configure uma política na Policy Engine."}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {checks.map((c) => (
+              <div key={c.rule} className="flex items-start gap-2 text-[11px]">
+                <span className={`shrink-0 mt-px ${c.pass ? "text-accent" : "text-neg"}`}>{c.pass ? "✓" : "✕"}</span>
+                <span className="font-mono text-fg-3 shrink-0">{c.rule}</span>
+                <span className="text-fg-3 ml-1 min-w-0 wrap-break-word">· {c.detail}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Action buttons */}
@@ -388,6 +464,8 @@ function IntentPanel({
 export function ExecutionDrawer({
   intents,
   walletAddress,
+  snapshot,
+  policy,
   onApprove,
   onExecute,
   onReject,
@@ -498,6 +576,8 @@ export function ExecutionDrawer({
           <IntentPanel
             intent={selected}
             walletAddress={walletAddress}
+            snapshot={snapshot}
+            policy={policy}
             onApprove={async () => { await onApprove(selected.id); setSelected((s) => s ? { ...s, status: "approved" } : null); }}
             onExecute={async () => { await onExecute(selected.id); setSelected(null); }}
             onReject={async ()  => { await onReject(selected.id);  setSelected(null); }}

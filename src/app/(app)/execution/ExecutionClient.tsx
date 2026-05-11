@@ -4,13 +4,18 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { ExecutionDrawer, type IntentRow } from "@/components/ExecutionDrawer";
 import { approveIntent, executeSimulated, rejectIntent, createIntent } from "./actions";
+import type { TreasurySnapshot, Policy } from "@/lib/rules-engine/types";
 
 export function ExecutionClient({
   intents,
   walletAddress,
+  snapshot,
+  policy,
 }: {
   intents: IntentRow[];
   walletAddress?: string;
+  snapshot: TreasurySnapshot | null;
+  policy: Policy | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -43,6 +48,8 @@ export function ExecutionClient({
     <ExecutionDrawer
       intents={intents}
       walletAddress={walletAddress}
+      snapshot={snapshot}
+      policy={policy}
       onApprove={handleApprove}
       onExecute={handleExecute}
       onReject={handleReject}

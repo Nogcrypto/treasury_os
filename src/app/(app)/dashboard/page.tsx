@@ -328,6 +328,14 @@ function buildSnapshot(
 ): TreasurySnapshot {
   const totals = row.totalsJson as { totalUsd: number; liquidUsd: number };
   const positions = (row.positionsJson as unknown[]) as TreasurySnapshot["positions"];
+
+  // Read saved bucket allocations; fall back gracefully for snapshots taken before the fix
+  const rawBuckets = row.bucketsJson;
+  const savedBuckets = Array.isArray(rawBuckets)
+    ? (rawBuckets as { kind: string; balanceUsd: number }[])
+    : [];
+  const balanceByKind = new Map(savedBuckets.map((b) => [b.kind, b.balanceUsd]));
+
   return {
     id: row.id,
     orgId,
@@ -337,7 +345,7 @@ function buildSnapshot(
     positions,
     buckets: orgBuckets.map((b) => ({
       kind: b.kind as TreasurySnapshot["buckets"][number]["kind"],
-      balanceUsd: 0,
+      balanceUsd: balanceByKind.get(b.kind) ?? 0,
       targetUsd: b.targetAmountCents / 100,
     })),
     obligations: orgObs.map((o) => ({

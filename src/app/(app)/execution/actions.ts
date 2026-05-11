@@ -35,7 +35,7 @@ export async function approveIntent(
   await db
     .update(intents)
     .set({ status: "approved", updatedAt: new Date() })
-    .where(eq(intents.id, intentId));
+    .where(and(eq(intents.id, intentId), eq(intents.orgId, orgId)));
 
   await db.insert(events).values({
     orgId,
@@ -70,7 +70,7 @@ export async function executeSimulated(
     await db
       .update(intents)
       .set({ status, updatedAt: new Date() })
-      .where(eq(intents.id, intentId));
+      .where(and(eq(intents.id, intentId), eq(intents.orgId, orgId)));
   }
 
   await db.insert(executions).values({

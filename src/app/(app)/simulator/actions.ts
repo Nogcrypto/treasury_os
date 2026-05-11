@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
 import { memberships, recommendations, policies, intents } from "@/lib/db/schema";
@@ -7,6 +8,14 @@ import { eq, and } from "drizzle-orm";
 import type { ScenarioAction } from "@/lib/rules-engine/types";
 import { revalidatePath } from "next/cache";
 import { isDemoUser } from "@/lib/demo";
+
+// 5-minute window: retries within the same window hit the UNIQUE constraint and
+// onConflictDoNothing absorbs them — same intent isn't created twice.
+function intentKey(orgId: string, action: ScenarioAction, index: number): string {
+  const window = Math.floor(Date.now() / (5 * 60_000));
+  const raw = `${orgId}:${action.kind}:${action.adapterId}:${action.amountUsd}:${window}:${index}`;
+  return createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
 
 export async function approveScenario(
   actions: ScenarioAction[],
@@ -39,15 +48,18 @@ export async function approveScenario(
     });
 
     // 2. Create draft intents for each action
-    for (const action of actions) {
-      const idempotencyKey = `${orgId}-${action.kind}-${action.adapterId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      await db.insert(intents).values({
-        orgId,
-        kind: action.kind as "deposit" | "withdraw" | "rebalance",
-        paramsJson: { adapterId: action.adapterId, amountUsd: action.amountUsd } as unknown as Record<string, unknown>,
-        status: "proposed",
-        idempotencyKey,
-      });
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      await db
+        .insert(intents)
+        .values({
+          orgId,
+          kind: action.kind as "deposit" | "withdraw" | "rebalance",
+          paramsJson: { adapterId: action.adapterId, amountUsd: action.amountUsd } as unknown as Record<string, unknown>,
+          status: "proposed",
+          idempotencyKey: intentKey(orgId, action, i),
+        })
+        .onConflictDoNothing();
     }
 
     revalidatePath("/execution");

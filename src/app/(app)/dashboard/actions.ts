@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db/client";
-import { memberships, wallets, snapshots, obligations } from "@/lib/db/schema";
+import { memberships, wallets, snapshots, obligations, buckets } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { isDemoUser } from "@/lib/demo";
 import { fetchWalletBalances } from "@/lib/solana/indexer";
@@ -98,6 +98,38 @@ export async function deleteObligation(
   }
 }
 
+// ── Bucket allocation ────────────────────────────────────────────────────────
+
+const BUCKET_PRIORITY = ["operating", "payroll", "tax", "emergency", "yield", "custom"] as const;
+
+type BucketKindStr = (typeof BUCKET_PRIORITY)[number];
+
+function allocateBuckets(
+  liquidUsd: number,
+  orgBuckets: { kind: string; targetAmountCents: number }[]
+): { kind: BucketKindStr; balanceUsd: number; targetUsd: number }[] {
+  const sorted = [...orgBuckets].sort((a, b) => {
+    const ai = BUCKET_PRIORITY.indexOf(a.kind as BucketKindStr);
+    const bi = BUCKET_PRIORITY.indexOf(b.kind as BucketKindStr);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+  let remaining = liquidUsd;
+  return sorted.map((b) => {
+    const targetUsd = b.targetAmountCents / 100;
+    let balanceUsd: number;
+    if (remaining <= 0) {
+      balanceUsd = 0;
+    } else if (b.kind === "yield" || b.kind === "custom") {
+      balanceUsd = remaining;
+      remaining = 0;
+    } else {
+      balanceUsd = Math.min(targetUsd, remaining);
+      remaining = Math.max(0, remaining - balanceUsd);
+    }
+    return { kind: b.kind as BucketKindStr, balanceUsd, targetUsd };
+  });
+}
+
 // ── Snapshot ──────────────────────────────────────────────────────────────────
 
 export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
@@ -112,9 +144,12 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
 
   const orgId = membership.orgId;
 
-  const wallet = await db.query.wallets.findFirst({
-    where: and(eq(wallets.orgId, orgId), eq(wallets.isPrimary, true)),
-  });
+  const [wallet, orgBuckets] = await Promise.all([
+    db.query.wallets.findFirst({
+      where: and(eq(wallets.orgId, orgId), eq(wallets.isPrimary, true)),
+    }),
+    db.query.buckets.findMany({ where: eq(buckets.orgId, orgId) }),
+  ]);
   if (!wallet) return { ok: false, error: "Nenhuma wallet principal configurada." };
 
   try {
@@ -122,10 +157,17 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
 
     const { PublicKey } = await import("@solana/web3.js");
     const pubkey = new PublicKey(wallet.address);
-    const [kaminoPos, mockRwaPos] = await Promise.allSettled([
+    const [kaminoPos, mockRwaPos, kaminoQuote, mockRwaQuote] = await Promise.allSettled([
       kaminoAdapter.readPosition(pubkey),
       mockRwaAdapter.readPosition(pubkey),
+      kaminoAdapter.quote(0),   // fetches live supply APR; falls back to 5.84
+      mockRwaAdapter.quote(0),  // returns fixed APR from adapter constant
     ]);
+
+    const kaminoApr       = kaminoQuote.status  === "fulfilled" ? kaminoQuote.value.apr        : 5.84;
+    const kaminoUnlock    = kaminoQuote.status  === "fulfilled" ? kaminoQuote.value.unlockDays  : 0;
+    const mockRwaApr      = mockRwaQuote.status === "fulfilled" ? mockRwaQuote.value.apr        : 4.82;
+    const mockRwaUnlock   = mockRwaQuote.status === "fulfilled" ? mockRwaQuote.value.unlockDays : 1;
 
     const positions: TreasurySnapshot["positions"] = [];
 
@@ -135,10 +177,10 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
         protocol: "Kamino",
         asset: "USDC",
         amountUsd: kaminoPos.value.amountUsd,
-        aprPct: 5.84,
+        aprPct: kaminoApr,
         accruedYieldUsd: kaminoPos.value.accruedYieldUsd,
         riskTier: 1,
-        unlockDays: 0,
+        unlockDays: kaminoUnlock,
       });
     }
 
@@ -148,16 +190,18 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
         protocol: "Mock RWA (USDY-like)",
         asset: "USDY",
         amountUsd: mockRwaPos.value.amountUsd,
-        aprPct: 4.82,
+        aprPct: mockRwaApr,
         accruedYieldUsd: mockRwaPos.value.accruedYieldUsd,
         riskTier: 2,
-        unlockDays: 1,
+        unlockDays: mockRwaUnlock,
       });
     }
 
     const deployedUsd = positions.reduce((s, p) => s + p.amountUsd, 0);
     const totalUsd = balances.usdcBalance + deployedUsd;
     const liquidUsd = balances.usdcBalance;
+
+    const bucketAllocation = allocateBuckets(liquidUsd, orgBuckets);
 
     await db.insert(snapshots).values({
       orgId,
@@ -167,7 +211,7 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
         solLamports: balances.solLamports.toString(),
       } as unknown as Record<string, unknown>,
       positionsJson: positions as unknown as Record<string, unknown>[],
-      bucketsJson: {} as unknown as Record<string, unknown>,
+      bucketsJson: bucketAllocation as unknown as Record<string, unknown>,
     });
 
     revalidatePath("/dashboard");

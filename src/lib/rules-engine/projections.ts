@@ -29,7 +29,7 @@ function obligations30dUsd(snapshot: TreasurySnapshot): number {
   const cutoff = new Date(snapshot.takenAt);
   cutoff.setDate(cutoff.getDate() + 30);
   return snapshot.obligations
-    .filter((o) => new Date(o.dueDateIso) <= cutoff && !o.dueDateIso.startsWith("+"))
+    .filter((o) => new Date(o.dueDateIso) <= cutoff)
     .reduce((sum, o) => sum + o.amountUsd, 0);
 }
 
