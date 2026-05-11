@@ -38,7 +38,7 @@ Capital sits idle in hot wallets earning nothing. Investors ask *"how are you ma
 **TreasuryOS** connects directly to your organization's Solana wallet, applies configurable allocation policies, suggests DeFi moves via AI, and executes deposits/withdrawals on-chain — all with an auditable decision log and a one-click PDF report for investors.
 
 ```
-Wallet Balance → Rules Engine → AI Copilot → DeFi Execution → Audit Trail → PDF Report
+Wallet Balance → Bucket Allocation → Rules Engine → AI Copilot → DeFi Execution → Audit Trail → PDF Report
 ```
 
 > Think of it as a **CFO co-pilot that runs 24/7 on-chain**.
@@ -53,23 +53,26 @@ Wallet Balance → Rules Engine → AI Copilot → DeFi Execution → Audit Trai
 - Email: `dev@capivara.xyz`
 - Password: `Senha@123`
 
+A **guided tour** launches automatically on first access — it walks you page by page through all 6 modules in ~60 seconds.
+
 Or register your own account and connect Phantom on devnet to see real on-chain balance data. The Simulator includes a **hypothetical mode** — no real balance required to model allocation scenarios.
 
 ---
 
-## Features — 9 Modules
+## Features — 10 Modules
 
 | Module | What It Does |
 |---|---|
+| **Guided Tour** | Page-by-page walkthrough of all 6 modules. Navigates automatically via `router.push()`, persists progress in localStorage, resumes on reload. |
 | **Onboarding Wizard** | 4-step setup: org profile → Phantom SIWS → policy preset → bucket targets. Registers full name, phone, country. |
-| **Dashboard** | Live KPIs: total balance, liquid runway (months), deployed APR, compliance score, alert banner. Links to all 5 modules. |
-| **Policy Builder** | Configure allocation rules via sliders — or **describe in plain Portuguese**, AI generates the JSON policy |
+| **Dashboard (Cockpit)** | Live KPIs: total balance, liquid runway (months), deployed APR, compliance score, alert banner. Bucket allocation bars. Obligations panel with 30/60/90-day horizon tabs and full CRUD. Concentration donut chart with live policy limit. |
+| **Policy Builder** | Bloomberg-style 2-column editor: preset cards (Conservative / Balanced / Aggressive) with live metrics, rule toggles + parameter sliders, AI text editor (Opus 4.7), versioned audit log. |
 | **AI Copilot** | Streaming chat with full treasury context. 5 tools with guardrails: analyze, explain, propose, simulate, draft. Full tool-use loop (no mid-response cutoffs). |
 | **Simulator** | Real-time projection — drag sliders, see runway and APR impact instantly. **Hypothetical mode** works even with $0 devnet balance. |
-| **Execution** | State machine DRAFT→CONFIRMED. Real Phantom signing or simulated mode. Kamino + Mock RWA. |
-| **Reports** | AI-generated executive summary + merged audit/event timeline + one-click PDF export |
-| **Auto-Snapshots** | Supabase Edge Function (Deno) snapshots all wallets every 5 min via pg_cron + Helius RPC |
-| **Webhooks** | Helius enhanced webhook: any on-chain transaction triggers instant snapshot refresh |
+| **Execution** | State machine DRAFT→CONFIRMED. Real rules validation against live snapshot + active policy before any approval. Phantom signing or simulated mode. Kamino + Mock RWA. |
+| **Equity Studio** | Token-gated dividend distribution in USDC for company token holders. Configure holder snapshots, amounts, and distribution dates. Fully on-chain and auditable. |
+| **Reports** | AI-generated executive summary + merged audit/event timeline + one-click PDF export. |
+| **Auto-Snapshots** | Supabase Edge Function (Deno) snapshots all wallets every 5 min via pg_cron + Helius RPC. Bucket balances computed at snapshot time via priority-fill algorithm. |
 
 ---
 
@@ -78,7 +81,7 @@ Or register your own account and connect Phantom on devnet to see real on-chain 
 ```
 Browser (React Client Components)
   ├── tRPC v11           — mutations with optimistic UI
-  ├── Server Actions     — wizard forms, snapshot triggers, policy save
+  ├── Server Actions     — wizard forms, snapshot triggers, policy save, obligations CRUD
   └── fetch /api/copilot — streaming SSE from Anthropic (tool-use loop)
 
 Next.js 16 Server (App Router + Turbopack)
@@ -98,8 +101,8 @@ Supabase
 Solana devnet
   ├── Helius RPC         — getBalance + getTokenAccountsByOwner
   ├── Helius Webhooks    — enhanced events → /api/webhooks/helius
-  ├── Kamino Lending SDK — real USDC deposit/withdraw on devnet
-  └── Mock RWA Adapter   — simulates Ondo USDY (4.82% APR, 1-day redeem)
+  ├── Kamino Lending SDK — real USDC deposit/withdraw on devnet (live APR via quote())
+  └── Mock RWA Adapter   — simulates Ondo USDY (fixed 4.82% APR, 1-day redeem)
 ```
 
 **Route groups:**
@@ -119,9 +122,9 @@ Solana devnet
 | Auth | **Supabase Auth** (email/password + magic link) + **SIWS** ed25519 (tweetnacl / bs58) |
 | Blockchain | **Solana devnet** · @solana/web3.js · `window.phantom.solana` direct API |
 | Indexer | **Helius** RPC + Enhanced Webhooks |
-| DeFi | **Kamino Lending SDK** (devnet) + Mock RWA adapter |
+| DeFi | **Kamino Lending SDK** (devnet, live APR) + Mock RWA adapter |
 | AI | **Anthropic Claude Sonnet 4.6** — streaming + tool-use loop + prompt caching |
-| Rules Engine | Pure TypeScript · zero I/O · runs on server and client |
+| Rules Engine | Pure TypeScript · zero I/O · runs on server and client · powers real-time Execution validation |
 | Styling | **Tailwind v4** — oklch design tokens, `@theme inline`, fully responsive |
 | PDF Export | **jsPDF** — dynamic import, client-side only |
 | Deploy | **Vercel** (region gru1 — São Paulo) + Supabase Edge Functions |
@@ -136,7 +139,7 @@ Solana devnet
 Client: connect via window.phantom.solana.connect() → request nonce → sign message
 Server: verify ed25519 signature (tweetnacl + bs58) → upsert wallet to DB
 ```
-No third-party OAuth. The wallet *is* the identity. Uses `window.phantom.solana` directly (no wallet-adapter-react timing issues).
+No third-party OAuth. The wallet *is* the identity.
 
 ### Helius RPC
 - `getBalance` — SOL balance in lamports, converted to USD
@@ -145,14 +148,8 @@ No third-party OAuth. The wallet *is* the identity. Uses `window.phantom.solana`
 
 ### Kamino Lending (real DeFi)
 - Market: `7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF` (devnet)
-- Adapter: `deposit(amountUsd)` / `withdraw(amountUsd)` / `getPosition()`
+- Adapter: `deposit(amountUsd)` / `withdraw(amountUsd)` / `readPosition()` / **`quote()` — live supply APR**
 - Externalized from Turbopack bundle via `serverExternalPackages`
-
-### Transaction Lifecycle
-```
-buildTx() → signAndSend() via Phantom → confirmTx() polling
-  └── or: SIM-<timestamp> in simulated mode (no chain interaction)
-```
 
 ### Intent State Machine
 ```
@@ -168,9 +165,10 @@ DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRM
 - **Model:** `claude-sonnet-4-6` with streaming (`ReadableStream` → `getReader()`)
 - **Context injected into system prompt:** current snapshot + active policy
 - **Prompt caching** (`cache_control: ephemeral`) — ~80% cost reduction after first turn
-- **Tool-use loop:** streaming continues through multiple tool calls until `end_turn` — no mid-response cutoffs
+- **Tool-use loop:** streaming continues through multiple tool calls until `end_turn`
 - **AbortController** — stop stream button works mid-generation
-- **5 tools with guardrails:**
+
+**5 tools with guardrails:**
 
 | Tool | What It Does |
 |---|---|
@@ -180,32 +178,18 @@ DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRM
 | `simulate_scenario` | Runs `projectScenario()` inline and returns projection diff |
 | `draft_policy_from_description` | NL description → `PolicyRule[]` JSON (uses Opus 4.7) |
 
-### Policy from Natural Language
-```
-Input:  "quero manter 6 meses de runway e no máximo 40% em um único protocolo"
-Output: { preset: "balanced", rules: PolicyRule[] }
-  → applied to PolicyBuilder UI state → user reviews → saves
-```
-Strips markdown code fences from response before JSON.parse (robust to model formatting variance).
-
-### Executive Summary (for PDF)
-- Separate Server Action, no streaming
-- All treasury KPIs structured in prompt
-- ≤150 words, PT-BR, direct founder tone
-- Embedded in PDF export automatically
-
 ---
 
 ## Rules Engine
 
-Pure TypeScript module at `src/lib/rules-engine/` — zero I/O, zero server dependencies. Runs on the server (dashboard, alerts) and the client (simulator real-time updates via `useMemo`).
+Pure TypeScript module at `src/lib/rules-engine/` — zero I/O, zero server dependencies. Runs on the server (dashboard, execution validation) and the client (simulator real-time updates via `useMemo`).
 
 | Function | Output |
 |---|---|
 | `projectRunway(snapshot, policy)` | runway months, deployed%, blended APR, compliance score, violations |
 | `projectScenario(snapshot, policy, deltas)` | same, on a hypothetical state after simulated moves |
+| `applyScenarioActions(snapshot, actions)` | applies deposit/withdraw deltas to snapshot state |
 | `computeAlerts(snapshot, policy)` | runway / concentration / obligation / policy alerts |
-| `validateActions(intents, snapshot, policy)` | go/no-go + block reason before execution |
 
 **Policy presets:**
 
@@ -224,7 +208,7 @@ organizations    — org profile, base currency, monthly burn
 users            — mirror of Supabase auth.users + full_name, phone, country
 memberships      — org × user × role (owner / admin / viewer)
 wallets          — Solana addresses linked to org
-snapshots        — point-in-time treasury photo (totals + positions JSON)
+snapshots        — point-in-time treasury photo (totals + positions + bucket balances JSON)
 policies         — versioned, status draft/active/archived, rules in JSONB
 buckets          — allocation categories (operating/payroll/tax/emergency/yield)
 obligations      — fixed expenses with due date and recurrence
@@ -316,23 +300,26 @@ The Supabase Edge Function at `supabase/functions/snapshot-cron/` runs on Deno a
 ```
 src/
 ├── app/
-│   ├── (app)/           dashboard · policy · copilot · simulator · execution · reports
+│   ├── (app)/           dashboard · policy · copilot · simulator · execution · equity-studio · reports
 │   ├── (auth)/          login · register · forgot-password · magic link callback
 │   ├── (onboarding)/    4-step setup wizard
 │   └── api/             trpc · copilot (streaming) · setup · helius webhook
 ├── components/
-│   ├── AppShell.tsx          responsive sidebar nav (hamburger on mobile)
+│   ├── AppShell.tsx          responsive sidebar nav + alert badge + tour button
 │   ├── AlertsBanner.tsx      4-type alert system
 │   ├── Copilot.tsx           streaming chat UI with abort
-│   ├── PolicyBuilder.tsx     rule editor + AI generation
+│   ├── PolicyBuilder.tsx     Bloomberg-style 2-col rule editor + AI generation
 │   ├── Simulator.tsx         real-time projection sliders + hypothetical mode
-│   ├── ExecutionDrawer.tsx   intent state machine UI
+│   ├── ExecutionDrawer.tsx   intent state machine + real rules validation
+│   ├── Tour.tsx              page-by-page guided tour (router.push + localStorage)
+│   ├── WalletButton.tsx      Phantom connect button
 │   ├── PdfExportButton.tsx   jsPDF client-side export
 │   ├── ProfilePanel.tsx      user profile + wallet connect modal
 │   ├── dashboard/            KpiGrid · BucketCard · PositionsTable · SnapshotButton
+│   │                         RunwayBar · ConcentrationPanel · ObligationsPanel
 │   └── onboarding/           SetupWizard (4 steps + direct Phantom API)
 ├── lib/
-│   ├── adapters/        kamino.ts · mock-rwa.ts
+│   ├── adapters/        kamino.ts (live APR via quote()) · mock-rwa.ts
 │   ├── agent/           client.ts (tool-use loop) · tools.ts · prompts.ts
 │   ├── db/              schema.ts (13 tables) · client.ts
 │   ├── demo/            index.ts — $847k mock data for dev@capivara.xyz

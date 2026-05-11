@@ -121,6 +121,12 @@ Módulo puro TypeScript em `src/lib/rules-engine/` — zero I/O, zero dependênc
 **`projectScenario(snapshot, policy, deltas) → ProjectionResult`**
 Aplica a mesma lógica sobre snapshot hipotético modificado pelos `deltas` (depósitos/saques). Usado no Simulador em tempo real.
 
+**`applyScenarioActions(snapshot, actions) → { liquidUsd, positions }`**
+Aplica depósitos/saques ao snapshot e retorna o estado pós-transação. Usado pelo Simulador e pelo `computeRulesValidation` no ExecutionDrawer para validar intents antes de aprovar.
+
+**`estimateMonthlyBurnUsd(snapshot) → number`**
+Calcula burn mensal a partir das `obligations` (monthly + quarterly/3 + annual/12). Fallback de 1 para evitar divisão por zero.
+
 **`computeAlerts(snapshot, policy) → TreasuryAlert[]`**
 Gera alertas de 4 tipos:
 - `runway` — runway líquido abaixo da meta mínima
@@ -128,8 +134,8 @@ Gera alertas de 4 tipos:
 - `policy` — outras violações de regra
 - `obligation` — obrigação com vencimento em ≤ 7 dias
 
-**`validateActions(intents, snapshot, policy) → ValidationResult`**
-Valida intenções de depósito/saque contra a política antes de executar.
+**`computeRulesValidation(intent, snapshot, policy) → CheckItem[]`**
+Usada no ExecutionDrawer: constrói `ScenarioAction` a partir dos params do intent, chama `applyScenarioActions` + `projectRunway`, mapeia as regras habilitadas para `{ rule, pass, detail }` com valores reais. Substitui validação fake hardcoded.
 
 ### Presets de política
 
@@ -141,7 +147,7 @@ Valida intenções de depósito/saque contra a política antes de executar.
 
 ---
 
-## 6. Funcionalidades — 9 Módulos
+## 6. Funcionalidades — 11 Módulos
 
 ### 6.1 Auth
 
@@ -165,10 +171,13 @@ Middleware Next.js protege todas as rotas `(app)`. Recuperação de senha via `r
 Server Component com `force-dynamic` — dados frescos a cada request:
 - **KpiGrid** — 4 métricas: total, líquido + runway, deployed + APR, compliance score
 - **AlertsBanner** — alertas computados server-side via `computeAlerts`
-- **BucketCard** — barra de progresso por categoria
+- **BucketCard** — barra de progresso por categoria; `balanceUsd` lido do `bucketsJson` salvo no snapshot (algoritmo priority-fill — ver seção 10.1)
+- **RunwayBar** — barra visual de runway com indicadores de zona (danger/warning/safe)
+- **ConcentrationPanel** — donut chart de concentração por protocolo com limite de policy
+- **ObligationsPanel** — tabs 30/60/90 dias com total de obrigações por horizonte; CRUD completo (criar, editar, excluir) via Server Actions
 - **PositionsTable** — posições alocadas com protocolo, APR, risco, yield acruado
 - **SnapshotButton** — tRPC mutation `snapshot.takeManual` → Helius RPC → insere snapshot → `revalidatePath`
-- **Module cards** — links clicáveis para os 5 módulos (Policy, Copilot, Simulador, Execução, Relatórios)
+- **Module cards** — links clicáveis para os 6 módulos (Policy, Copilot, Simulador, Execução, Equity Studio, Relatórios)
 
 ### 6.4 Demo Mode (`dev@capivara.xyz`)
 
@@ -185,11 +194,13 @@ Dados mockados (`src/lib/demo/index.ts`):
 
 ### 6.5 Policy Builder
 
-- Seletor de preset (Conservative / Balanced / Aggressive)
-- Toggles por regra + sliders de parâmetros (MIN_RUNWAY_DAYS, MAX_CONCENTRATION_PCT, MIN_LIQUID_PCT, REBALANCE_TRIGGER) e checkboxes (ALLOCATION_WHITELIST)
+Layout Bloomberg-style em 2 colunas: preset cards à esquerda, editor de regras à direita.
+
+- **Preset cards** — Conservative / Balanced / Aggressive com métricas ao vivo (min runway, concentração máx., liquidez mín.); seleção muda as regras no painel direito
+- **Painel de regras** — toggle por regra + sliders de parâmetros (MIN_RUNWAY_DAYS, MAX_CONCENTRATION_PCT, MIN_LIQUID_PCT, REBALANCE_TRIGGER) e checkboxes (ALLOCATION_WHITELIST)
 - `saveAndActivate()` — arquiva policy ativa e insere nova versão como `active`
-- **Geração por IA:** textarea em linguagem natural → `policyFromDescription()` Server Action → Claude Sonnet → JSON de regras → strip de markdown fences → JSON.parse → aplica no estado local
-- Histórico de versões exibido abaixo do editor
+- **Editor de IA** — textarea em linguagem natural → `policyFromDescription()` Server Action → Claude Sonnet → JSON de regras → strip de markdown fences → `JSON.parse` → aplica no estado local
+- **Audit log versionado** — histórico de versões exibido abaixo com timestamp e autor
 
 ### 6.6 Copilot (AI Chat)
 
@@ -227,16 +238,39 @@ DRAFT → PROPOSED → APPROVED → QUEUED → SIGNING → BROADCAST → CONFIRM
 ```
 - **Modo simulado:** `SIM-<timestamp>` como tx signature, sem interação onchain
 - **Modo real:** `buildTx()` → `signAndSend()` via Phantom → `confirmTx()` polling
-- Valida intent contra policy via `validateActions` antes de enfileirar
+- **Validação real de regras** — `computeRulesValidation(intent, snapshot, policy)` simula o estado pós-transação via `applyScenarioActions` + `projectRunway` e exibe checkitem por regra habilitada com valores reais (não hardcoded)
+- Página busca snapshot + policy ativos em paralelo e injeta em `ExecutionClient` → `ExecutionDrawer`
+- Exibe "Sem snapshot" / "Sem política ativa" quando dados faltam — nunca mente sobre compliance
 - Exibe histórico de execuções com status e tx signature
 
-### 6.9 Relatórios
+### 6.9 Tour Guiado
+
+Componente `Tour.tsx` — guia o usuário página a página em ~60 segundos no primeiro acesso.
+
+- **6 passos** com `href`, `label`, `icon`, `title`, `body`: Dashboard → Policy → Copilot → Simulator → Execution → Reports
+- **Navegação real:** `useRouter().push(STEPS[step].href)` — não é modal sobreposto; navega de verdade entre rotas
+- **`navigating` state** bloqueia duplo-clique; limpa quando `usePathname() === STEPS[step].href`
+- **localStorage** persiste `{ done: boolean, step: number }` — retoma de onde parou no reload
+- **AutoStart** — abre automaticamente para demo users no primeiro acesso (sem `tourDone` salvo)
+- **Card fixo** no canto inferior direito com chips de passo, barra de progresso e botão "Next label →"
+- Botão "Tour" no AppShell reabre a qualquer momento
+
+### 6.10 Equity Studio
+
+Módulo de distribuição de dividendos em USDC para holders do token da empresa.
+
+- Configura snapshot de holders: endereço do token, data de corte
+- Define valor a distribuir e data de pagamento
+- Execução on-chain auditável — cada distribuição gera registro em `events`
+- Token-gated: somente holders verificados recebem a distribuição
+
+### 6.11 Relatórios
 
 - **Decision Log:** timeline mesclada de `audit_log` + `events`, ordenada por data
 - **Resumo Executivo:** Server Action chama Claude Sonnet 4.6 com todos os KPIs → texto PT-BR ≤150 palavras, tom direto para o founder
 - **PDF Export:** jsPDF (dynamic import) → A4 com header, KPIs em grid 2 colunas, tabela de posições, violações, resumo executivo, rodapé com hash do snapshot
 
-### 6.10 Auto-Snapshots + Webhook
+### 6.12 Auto-Snapshots + Webhook
 
 **Supabase Edge Function** (`supabase/functions/snapshot-cron/index.ts`, runtime Deno):
 - Agendada a cada 5 min via `pg_cron`
@@ -324,7 +358,8 @@ Usa `bs58` em vez de `@solana/web3.js/PublicKey` para evitar ESM issues no servi
 
 - Adapter: `KaminoUsdcAdapter` em `src/lib/adapters/kamino.ts`
 - Market: `7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF` (devnet)
-- Métodos: `deposit(amountUsd)`, `withdraw(amountUsd)`, `readPosition(pubkey)`
+- Métodos: `deposit(amountUsd)`, `withdraw(amountUsd)`, `readPosition(pubkey)`, **`quote(0)` — busca APR real do mercado Kamino; fallback 5.84% se RPC falhar**
+- `takeSnapshot()` chama `quote(0)` em `Promise.allSettled` em paralelo com `readPosition` — APR salvo no `positionsJson` é sempre o do mercado
 - Externalizado via `serverExternalPackages` no `next.config.ts`
 
 ### Mock RWA Adapter
@@ -389,7 +424,52 @@ System prompt (snapshot + política) tem `cache_control: { type: "ephemeral" }`.
 
 ---
 
-## 10. Responsividade e UX
+## 10. Segurança e Consistência de Dados
+
+### 10.1 Algoritmo de Alocação de Buckets
+
+`allocateBuckets(liquidUsd, orgBuckets)` em `dashboard/actions.ts` — priority-fill no momento do snapshot:
+
+```typescript
+const BUCKET_PRIORITY = ["operating", "payroll", "tax", "emergency", "yield", "custom"];
+// operating e payroll → min(targetUsd, remaining)
+// yield e custom → absorvem todo o restante
+// buckets mais prioritários preenchem primeiro
+```
+
+Resultado salvo em `snapshots.bucketsJson` como `{ kind, balanceUsd, targetUsd }[]`. Lido em `buildSnapshot()` no `dashboard/page.tsx` e `simulator/page.tsx` via `balanceByKind.get(b.kind) ?? 0` — fallback para snapshots antigos que tinham `{}`.
+
+### 10.2 IDOR — Defense in Depth
+
+Todas as mutations em `execution/actions.ts` incluem `orgId` na cláusula WHERE das UPDATEs:
+
+```typescript
+// approveIntent e executeSimulated:
+.where(and(eq(intents.id, intentId), eq(intents.orgId, orgId)));
+```
+
+Sem esse segundo predicado, um usuário autenticado em outra org poderia aprovar ou executar intents de terceiros (TOCTOU entre o READ de validação e o UPDATE).
+
+### 10.3 Idempotência de Intents
+
+`approveScenario()` em `simulator/actions.ts` usa hash determinístico SHA-256 com janela de 5 minutos:
+
+```typescript
+function intentKey(orgId, action, index): string {
+  const window = Math.floor(Date.now() / (5 * 60_000));
+  const raw = `${orgId}:${action.kind}:${action.adapterId}:${action.amountUsd}:${window}:${index}`;
+  return createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+// INSERT com .onConflictDoNothing() absorve retries dentro da mesma janela
+```
+
+### 10.4 Demo Guard
+
+Todas as Server Actions e Route Handlers verificam `isDemoUser(user.email)` antes de qualquer write no DB. Demo users retornam `{ ok: true }` sem efeitos colaterais.
+
+---
+
+## 11. Responsividade e UX
 
 ### AppShell — Sidebar Responsiva
 
@@ -410,7 +490,7 @@ Modal deslizante pelo avatar do usuário na sidebar:
 
 ---
 
-## 11. Deploy e Infraestrutura
+## 12. Deploy e Infraestrutura
 
 ```
 Vercel
@@ -434,7 +514,7 @@ GitHub
 
 ---
 
-## 12. Estrutura de Arquivos
+## 13. Estrutura de Arquivos
 
 ```
 src/
@@ -442,9 +522,10 @@ src/
 │   ├── (app)/           — rotas autenticadas
 │   │   ├── dashboard/   — page.tsx + actions.ts
 │   │   ├── policy/      — page.tsx + actions.ts
-│   │   ├── copilot/     — page.tsx
+│   │   ├── copilot/     — page.tsx + actions.ts
 │   │   ├── simulator/   — page.tsx + actions.ts
-│   │   ├── execution/   — page.tsx + actions.ts
+│   │   ├── execution/   — page.tsx + actions.ts + ExecutionClient.tsx
+│   │   ├── equity-studio/ — page.tsx
 │   │   └── reports/     — page.tsx + actions.ts
 │   ├── (auth)/
 │   │   ├── login/       — page.tsx + actions.ts
@@ -458,15 +539,19 @@ src/
 │       ├── trpc/[trpc]/ — route.ts
 │       └── webhooks/helius/ — route.ts
 ├── components/
-│   ├── AppShell.tsx          — sidebar responsiva (hamburger mobile)
+│   ├── AppShell.tsx          — sidebar responsiva (hamburger mobile) + botão Tour
 │   ├── AlertsBanner.tsx      — 4 tipos de alerta
 │   ├── Copilot.tsx           — chat streaming UI + abort
-│   ├── ExecutionDrawer.tsx   — state machine de intents
+│   ├── ExecutionDrawer.tsx   — state machine de intents + computeRulesValidation real
+│   ├── MarketTicker.tsx      — ticker de preços de mercado
 │   ├── PdfExportButton.tsx   — jsPDF export (dynamic import)
-│   ├── PolicyBuilder.tsx     — editor de regras + geração por IA
+│   ├── PolicyBuilder.tsx     — Bloomberg-style 2 colunas + geração por IA
 │   ├── ProfilePanel.tsx      — modal de perfil + wallet connect
 │   ├── Simulator.tsx         — sliders + modo hipotético + projeção real-time
+│   ├── Tour.tsx              — guia página a página + router.push + localStorage
+│   ├── WalletButton.tsx      — botão de conexão Phantom standalone
 │   ├── dashboard/            — KpiGrid, BucketCard, PositionsTable, SnapshotButton
+│   │                           RunwayBar, ConcentrationPanel, ObligationsPanel
 │   └── onboarding/           — SetupWizard (4 steps + direct Phantom API)
 ├── lib/
 │   ├── adapters/        — interface + kamino.ts + mock-rwa.ts
@@ -491,12 +576,12 @@ drizzle/
 docs/
 ├── PLAN.md
 ├── Backlog.md
-└── TECHNICAL.md  ← este arquivo
+└── TECHNICAL.md  ← este arquivo   (atualizado com Tour, bucket fix, rules reais, segurança)
 ```
 
 ---
 
-## 13. Variáveis de Ambiente
+## 14. Variáveis de Ambiente
 
 ```env
 # Supabase
