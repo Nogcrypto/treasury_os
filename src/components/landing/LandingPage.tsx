@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from "framer-motion";
@@ -243,17 +243,22 @@ function SimulatorSection() {
   const yieldMensal = (volume * apy) / 12;
   const yieldAnual = volume * apy;
   const standardRunway = volume / burnRate;
-  const optimizedBurnRate = burnRate - yieldMensal;
+  const optimizedBurnRate = Math.max(burnRate - yieldMensal, 1);
   const optimizedRunway = volume / optimizedBurnRate;
 
-  const chartData = [];
-  for (let month = 0; month <= Math.ceil(optimizedRunway); month++) {
-    chartData.push({
-      month: `${t.sim.monthPrefix} ${month}`,
-      standard: Math.max(0, volume - burnRate * month),
-      optimized: Math.max(0, volume - optimizedBurnRate * month),
-    });
-  }
+  const chartData = useMemo(() => {
+    const maxMonths = Math.min(Math.ceil(Math.max(standardRunway, optimizedRunway)), 60);
+    const data = [];
+    for (let month = 0; month <= maxMonths; month++) {
+      data.push({
+        month: `${t.sim.monthPrefix} ${month}`,
+        standard: Math.max(0, volume - burnRate * month),
+        optimized: Math.max(0, volume - optimizedBurnRate * month),
+      });
+    }
+    return data;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume, t.sim.monthPrefix]);
 
   const locale = lang === "pt" ? "pt-BR" : lang === "es" ? "es-ES" : "en-US";
   const fmt = (n: number, opts?: Intl.NumberFormatOptions) =>
@@ -286,7 +291,7 @@ function SimulatorSection() {
               />
               <div className="relative w-full h-2 bg-white/5 rounded-full overflow-hidden pointer-events-none shadow-inner border border-white/5">
                 <div
-                  className="absolute top-0 left-0 h-full bg-gradient-to-r from-brand-emerald to-brand-blue transition-all duration-75 ease-out"
+                  className="absolute top-0 left-0 h-full bg-gradient-to-r from-brand-emerald to-brand-blue"
                   style={{ width: `${((volume - 50000) / (5000000 - 50000)) * 100}%` }}
                 />
               </div>
