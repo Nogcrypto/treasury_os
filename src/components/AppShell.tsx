@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
@@ -109,14 +108,10 @@ export function AppShell({
       {/* Logo */}
       <div className="px-4 py-4 border-b border-line flex items-center justify-between shrink-0">
         <div className="min-w-0">
-          <Image
-            src="/logo.png"
-            alt="TreasuryOS"
-            width={140}
-            height={56}
-            className="w-auto h-9 object-contain"
-            priority
-          />
+          <Link href="/dashboard" className="flex items-baseline gap-0 leading-none select-none">
+            <span className="text-lg font-light text-fg-2 tracking-[0.12em]">Treasury</span>
+            <span className="text-lg font-bold text-fg tracking-[0.04em]">OS</span>
+          </Link>
           {orgName && (
             <div className="text-[10px] text-fg-3 mt-1 truncate font-mono">{orgName}</div>
           )}
@@ -231,13 +226,10 @@ export function AppShell({
           </button>
 
           {/* Mobile logo */}
-          <Image
-            src="/logo.png"
-            alt="TreasuryOS"
-            width={100}
-            height={40}
-            className="md:hidden w-auto h-7 object-contain"
-          />
+          <Link href="/dashboard" className="md:hidden flex items-baseline gap-0 leading-none select-none">
+            <span className="text-base font-light text-fg-2 tracking-[0.12em]">Treasury</span>
+            <span className="text-base font-bold text-fg tracking-[0.04em]">OS</span>
+          </Link>
 
           {/* Search */}
           <div className="hidden md:flex flex-1 max-w-xs">
