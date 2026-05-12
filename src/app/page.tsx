@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import LandingPage from "@/components/landing/LandingPage";
 
-// Root redirects to dashboard; middleware handles auth guard.
 export default function RootPage() {
-  redirect("/dashboard");
+  return <LandingPage />;
 }
