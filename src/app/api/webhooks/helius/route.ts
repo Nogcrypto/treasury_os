@@ -70,8 +70,8 @@ async function takeSnapshot(orgId: string, walletAddress: string): Promise<void>
     await db.insert(snapshots).values({
       orgId,
       totalsJson: {
-        totalUsd: balances.usdcBalance,
-        liquidUsd: balances.usdcBalance,
+        totalUsd: balances.stablecoinBalance,
+        liquidUsd: balances.stablecoinBalance,
         solLamports: balances.solLamports.toString(),
       } as unknown as Record<string, unknown>,
       positionsJson: [] as unknown as Record<string, unknown>,

@@ -7,7 +7,6 @@ import { useTranslations } from "next-intl";
 import nextDynamic from "next/dynamic";
 import { signOut } from "@/app/(auth)/login/actions";
 import { MarketTicker } from "./MarketTicker";
-import { WalletButton } from "./WalletButton";
 import { Tour } from "./Tour";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 
@@ -276,10 +275,6 @@ export function AppShell({
             <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-neg text-[8px] font-bold text-white flex items-center justify-center">2</span>
           </button>
 
-          {/* Wallet connect */}
-          <div className="hidden md:block">
-            <WalletButton serverWalletAddress={walletAddress} />
-          </div>
         </div>
 
         {/* Market Ticker */}

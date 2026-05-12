@@ -160,8 +160,8 @@ export const snapshotRouter = router({
     }
 
     const deployedUsd = positions.reduce((s, p) => s + p.amountUsd, 0);
-    const totalUsd = balances.usdcBalance + deployedUsd;
-    const liquidUsd = balances.usdcBalance;
+    const totalUsd = balances.stablecoinBalance + deployedUsd;
+    const liquidUsd = balances.stablecoinBalance;
 
     const [snapshot] = await ctx.db
       .insert(snapshots)

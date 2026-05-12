@@ -55,7 +55,7 @@
         "label": "Dashboard",
         "icon": "⬡",
         "title": "Cockpit · treasury overview",
-        "body": "Main panel with real-time treasury state: total balance, runway, deployed capital and compliance score. Each number answers a critical treasury question."
+        "body": "First: click your name in the sidebar to connect your Solana devnet wallet and hit 'Snapshot now'. The dashboard then shows real-time treasury state: total balance, runway, deployed capital and compliance score."
       },
       "policy": {
         "label": "Policy Engine",

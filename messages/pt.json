@@ -55,7 +55,7 @@
         "label": "Dashboard",
         "icon": "⬡",
         "title": "Cockpit · visão geral do caixa",
-        "body": "Painel principal com o estado do caixa em tempo real: total, runway, capital alocado e score de compliance. Cada número responde uma pergunta crítica da tesouraria."
+        "body": "Primeiro: clique no seu nome na barra lateral para conectar sua carteira Solana devnet e clique em 'Snapshot agora'. O painel mostrará o estado do caixa em tempo real: total, runway, capital alocado e score de compliance."
       },
       "policy": {
         "label": "Policy Engine",

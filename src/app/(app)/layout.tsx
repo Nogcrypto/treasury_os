@@ -56,6 +56,7 @@ export default async function AppLayout({
         orgId={orgId}
         walletAddress={wallet?.address}
         userName={userName}
+        showTourAutoStart
       >
         {children}
       </AppShell>

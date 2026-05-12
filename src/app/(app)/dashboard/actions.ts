@@ -198,8 +198,8 @@ export async function takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
     }
 
     const deployedUsd = positions.reduce((s, p) => s + p.amountUsd, 0);
-    const totalUsd = balances.usdcBalance + deployedUsd;
-    const liquidUsd = balances.usdcBalance;
+    const totalUsd = balances.stablecoinBalance + deployedUsd;
+    const liquidUsd = balances.stablecoinBalance;
 
     const bucketAllocation = allocateBuckets(liquidUsd, orgBuckets);
 

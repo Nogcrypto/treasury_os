@@ -1,12 +1,28 @@
 import "server-only";
 
 const HELIUS_RPC = process.env.HELIUS_RPC_URL ?? "https://api.devnet.solana.com";
-const USDC_DEVNET_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+// Stablecoin mints on Solana devnet — each treated as 1:1 USD.
+const DEVNET_STABLECOINS: Record<string, string> = {
+  // USDC — Kamino devnet + maioria dos DeFi Solana devnet
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
+  // USDC — Circle devnet faucet oficial (faucet.circle.com → devnet)
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": "USDC",
+  // USDT — Saber/Mercurial devnet test mint
+  "EJwZgeZrdC8TXTQbQBoL6bfuAnFUUy1PVCMB4DYPzVaS": "USDT",
+  // USDH — Hubble Protocol devnet
+  "USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX": "USDH",
+  // PYUSD — PayPal USD devnet (Solana Foundation developer program)
+  "CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM": "PYUSD",
+};
+
+// Export so adapters and tests can reference the same set without duplicating.
+export const DEVNET_STABLECOIN_MINTS = DEVNET_STABLECOINS;
 
 export interface WalletBalances {
   solLamports: bigint;
   tokens: { mint: string; symbol: string; balance: number; decimals: number }[];
-  usdcBalance: number;
+  stablecoinBalance: number;
 }
 
 // Fetch SOL and SPL token balances for a wallet address via Helius RPC.
@@ -30,15 +46,18 @@ export async function fetchWalletBalances(walletAddress: string): Promise<Wallet
       const info = account.account.data.parsed.info;
       return {
         mint: info.mint,
-        symbol: info.mint === USDC_DEVNET_MINT ? "USDC" : "UNKNOWN",
+        symbol: DEVNET_STABLECOINS[info.mint] ?? "UNKNOWN",
         balance: info.tokenAmount.uiAmount ?? 0,
         decimals: info.tokenAmount.decimals,
       };
     }
   );
 
-  const usdcToken = tokens.find((t) => t.mint === USDC_DEVNET_MINT);
-  return { solLamports, tokens, usdcBalance: usdcToken?.balance ?? 0 };
+  const stablecoinBalance = tokens
+    .filter((t) => t.mint in DEVNET_STABLECOINS)
+    .reduce((sum, t) => sum + t.balance, 0);
+
+  return { solLamports, tokens, stablecoinBalance };
 }
 
 // Subscribe to balance changes via Helius Enhanced Webhooks.
